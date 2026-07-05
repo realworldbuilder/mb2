@@ -1,0 +1,150 @@
+# masterbuilder-bot research sources
+#
+# Scope: AI in general, plus architecture, construction, robotics, and space —
+# with a bias toward hands-on builder stories over corporate press releases.
+#
+# Each source needs:
+#   name:    a short label (shows up in research items and the dashboard)
+#   type:    "rss"  -> parsed with feedparser (best option, use when available)
+#            "web"  -> plain page fetch, headlines scraped with BeautifulSoup
+#   url:     the feed or page URL
+#   enabled: true/false — flip to false to skip a source without deleting it
+#   tags:    optional extra tags stamped onto items from this source
+#
+# All feeds below were tested and returning entries as of 2026-07-05.
+# A broken source never crashes the run; it just logs a warning.
+
+categories:
+
+  # NOTE: the bot balances the day's list round-robin across categories, so
+  # ai_general can never flood the other beats. max_items (per source) keeps
+  # the high-volume generic feeds on a short leash within the category.
+  ai_general:
+    - name: Hacker News front page
+      type: rss
+      url: https://hnrss.org/frontpage?points=150
+      enabled: true
+      max_items: 3   # high volume, mostly software — skim only the top
+      tags: [ai, tech]
+    - name: Ars Technica AI
+      type: rss
+      url: https://arstechnica.com/ai/feed/
+      enabled: true
+      max_items: 4
+      tags: [ai]
+    - name: The Verge AI
+      type: rss
+      url: https://www.theverge.com/rss/ai-artificial-intelligence/index.xml
+      enabled: false   # consumer big-tech news — enable if you miss it
+      tags: [ai]
+    - name: MIT Technology Review AI
+      type: rss
+      url: https://www.technologyreview.com/topic/artificial-intelligence/feed
+      enabled: true
+      max_items: 3
+      tags: [ai]
+    - name: Simon Willison
+      type: rss
+      url: https://simonwillison.net/atom/everything/
+      enabled: true
+      max_items: 3
+      tags: [ai, local-ai, hands-on]
+    - name: Import AI (Jack Clark)
+      type: rss
+      url: https://importai.substack.com/feed
+      enabled: true
+      max_items: 3
+      tags: [ai, robotics, deep-dive]
+    - name: Understanding AI (Tim Lee)
+      type: rss
+      url: https://www.understandingai.org/feed
+      enabled: true
+      max_items: 3
+      tags: [ai, robotics, deep-dive]
+
+  architecture_design:
+    - name: Dezeen
+      type: rss
+      url: https://www.dezeen.com/feed/
+      enabled: true
+      tags: [architecture, design]
+    - name: ArchDaily
+      type: rss
+      url: http://feeds.feedburner.com/ArchDaily
+      enabled: true
+      tags: [architecture]
+
+  construction:
+    - name: Construction Dive
+      type: rss
+      url: https://www.constructiondive.com/feeds/news/
+      enabled: true
+      tags: [construction]
+    - name: Construction Physics (Brian Potter)
+      type: rss
+      url: https://www.construction-physics.com/feed
+      enabled: true
+      tags: [construction, deep-dive]
+    - name: Practical Engineering (Grady Hillhouse)
+      type: rss
+      url: https://practical.engineering/blog?format=rss
+      enabled: true
+      tags: [construction, civil, hands-on]
+    - name: ConTech Roundup
+      type: rss
+      url: https://contechroundup.substack.com/feed
+      enabled: true
+      tags: [construction, contech, deep-dive]
+
+  robotics:
+    - name: IEEE Spectrum Robotics
+      type: rss
+      url: https://spectrum.ieee.org/feeds/topic/robotics.rss
+      enabled: true
+      tags: [robotics]
+    - name: The Robot Report
+      type: rss
+      url: https://www.therobotreport.com/feed/
+      enabled: true
+      tags: [robotics]
+
+  space:
+    - name: SpaceNews
+      type: rss
+      url: https://spacenews.com/feed/
+      enabled: true
+      tags: [space]
+    - name: NASA breaking news
+      type: rss
+      url: https://www.nasa.gov/rss/dyn/breaking_news.rss
+      enabled: true
+      tags: [space, nasa]
+    - name: Ars Technica Space
+      type: rss
+      url: https://arstechnica.com/space/feed/
+      enabled: true
+      tags: [space]
+    - name: Payload (space business)
+      type: rss
+      url: https://payloadspace.com/feed/
+      enabled: true
+      tags: [space, deep-dive]
+
+  hands_on_builders:
+    - name: Hackaday
+      type: rss
+      url: https://hackaday.com/blog/feed/
+      enabled: true
+      tags: [hands-on, hardware]
+    # Add your own favorites — trade blogs, shop channels, field newsletters:
+    - name: Example builder blog
+      type: rss
+      url: https://example.com/feed.xml
+      enabled: false
+      tags: [hands-on]
+
+# Per-run limits (keep research digestible)
+limits:
+  max_items_per_source: 5
+  max_items_total: 60
+  fetch_timeout_seconds: 15

@@ -1,0 +1,10 @@
+# Copy to accounts.yaml when you're ready to wire up real accounts.
+# NOT needed for the MVP — posting is a dry-run stub.
+# Never commit accounts.yaml. Keys live in .env, not here; this file only
+# describes which accounts exist and their posting policy.
+
+accounts:
+  x:
+    handle: "@masterbuilder_ai"   # placeholder — set your real handle
+    enabled: false                # must be true AND BOT_MODE=approved_posting to ever post
+    max_posts_per_day: 5          # hard cadence cap enforced by safety.py

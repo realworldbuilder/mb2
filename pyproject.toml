@@ -1,0 +1,8 @@
+[project]
+name = "masterbuilder-bot"
+version = "0.1.0"
+description = "Approval-first local research, content, and dashboard bot for masterbuilder.ai"
+requires-python = ">=3.10"
+
+[tool.setuptools]
+packages = ["masterbuilder_bot"]
