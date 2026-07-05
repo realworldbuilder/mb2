@@ -19,11 +19,14 @@ PLATFORMS = {
 }
 
 # Where each draft type gets published by default.
+# LinkedIn is wired but OFF by William's choice (2026-07-05): he doesn't
+# want automated posts on his personal profile. builder_signal goes to X
+# as a thread instead. Re-enable by mapping a type back to "linkedin".
 PLATFORM_FOR_TYPE = {
     "x_post": "x",
     "x_thread": "x",
     "essay": "substack",
-    "builder_signal": "linkedin",
+    "builder_signal": "x",
     "content_idea": None,
 }
 

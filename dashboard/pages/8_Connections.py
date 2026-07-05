@@ -74,17 +74,18 @@ test_button("x")
 st.divider()
 
 # ============================ LinkedIn =============================
-st.header(("✅ " if status["linkedin"]["configured"] else "❌ ") + "LinkedIn")
-with st.expander("How to get the token (~10 minutes, free)",
-                 expanded=not status["linkedin"]["configured"]):
+st.header("⏸️ LinkedIn — off by choice")
+st.caption("You decided not to auto-post to your personal profile "
+           "(builder signals go to X as threads instead). Nothing routes "
+           "here, so no keys are needed.")
+with st.expander("If you ever change your mind"):
     st.markdown("""
-1. Go to **[linkedin.com/developers](https://www.linkedin.com/developers/)** → **Create app** (name: *Masterbuilder*, attach it to your LinkedIn page — create a company page for masterbuilder.ai first if you don't have one; verify the app from the app's Settings tab).
-2. In the app, open the **Products** tab → request **"Share on LinkedIn"** and **"Sign In with LinkedIn using OpenID Connect"** (both approve instantly).
-3. Open the **Auth** tab → under *OAuth 2.0 tools* on the right, click **Token generator** → select scopes **openid, profile, w_member_social** → **Request access token** → approve → copy the token and paste it below.
-4. Hit **Test**. ⚠️ LinkedIn tokens expire after **60 days** — when LinkedIn posting starts failing, redo step 3 (2 minutes).
+The plumbing is still installed. Two ways back in:
+- **Personal profile**: create an app at **[linkedin.com/developers](https://www.linkedin.com/developers/)**, request *Share on LinkedIn* + *Sign In with LinkedIn using OpenID Connect*, generate a token (scopes: openid, profile, w_member_social) and paste it below. ⚠️ tokens expire every 60 days.
+- **Company page instead of you**: needs a masterbuilder.ai company page and LinkedIn's *Community Management API* approval (a form, takes days). Ask Claude to wire it when approved.
 """)
-key_field("LINKEDIN_ACCESS_TOKEN", "Access Token")
-test_button("linkedin")
+    key_field("LINKEDIN_ACCESS_TOKEN", "Access Token (only if re-enabling)")
+    test_button("linkedin")
 
 st.divider()
 

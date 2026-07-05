@@ -59,14 +59,39 @@ def split_thread(text: str) -> list[str]:
     """Split a draft body into tweets.
 
     Numbered paragraphs ("1/ ...", "2/ ...") become one tweet each.
-    Anything else is a single tweet. Over-long tweets are hard-cut at the
-    last sentence/word boundary under 280 chars rather than rejected —
+    Anything else that fits 280 chars is a single tweet. Longer content
+    (e.g. a builder_signal's bullets) is packed into a thread: paragraphs
+    and bullet lines are greedily grouped into <=280-char tweets. Any
+    still-over-long tweet is cut at the last sentence/word boundary —
     the review step already saw the text.
     """
     text = text.strip()
     paras = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
     numbered = [p for p in paras if re.match(r"^\d+\s*/", p)]
-    tweets = numbered if len(numbered) >= 2 else [text]
+    if len(numbered) >= 2:
+        return [_clip(t) for t in numbered]
+    if len(text) <= TWEET_LIMIT:
+        return [text]
+
+    # Pack paragraphs (and bullet lines within them) into tweet-sized chunks.
+    units: list[str] = []
+    for p in paras:
+        lines = p.splitlines()
+        if all(ln.lstrip().startswith(("- ", "* ", "• ")) for ln in lines):
+            units.extend(ln.strip() for ln in lines)
+        else:
+            units.append(p.replace("\n", " "))
+    tweets, current = [], ""
+    for u in units:
+        candidate = f"{current}\n\n{u}" if current else u
+        if len(candidate) <= TWEET_LIMIT:
+            current = candidate
+        else:
+            if current:
+                tweets.append(current)
+            current = u
+    if current:
+        tweets.append(current)
     return [_clip(t) for t in tweets]
 
 
