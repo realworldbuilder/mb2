@@ -151,19 +151,23 @@ def verify_url(name: str, url: str) -> bool:
     tokens = _name_tokens(name)
     if not tokens:
         return False
+    flat_domain = domain.replace("-", "").replace(".", "")
+    name_in_domain = any(t in flat_domain for t in tokens)
     try:
         import requests
 
         resp = requests.get(url, timeout=12, allow_redirects=True,
-                            headers={"User-Agent": "masterbuilder-bot/0.1 "
-                                                   "(directory link check)"})
+                            headers={"User-Agent": "Mozilla/5.0 (Macintosh) "
+                                                   "masterbuilder-bot link check"})
+        if resp.status_code in (403, 405, 429):
+            # site is alive but blocks bots — trust it if the domain IS the name
+            return name_in_domain
         if resp.status_code >= 400:
             return False
         page = resp.text[:20000].lower()
     except Exception:  # noqa: BLE001 — dead/slow link = not verified
         return False
-    flat_domain = domain.replace("-", "").replace(".", "")
-    return any(t in page or t in flat_domain for t in tokens)
+    return name_in_domain or any(t in page for t in tokens)
 
 
 def find_official_url(name: str, summary: str) -> str:
