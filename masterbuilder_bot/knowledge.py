@@ -129,6 +129,59 @@ def _official_url(url: str, article_url: str) -> str:
     return url
 
 
+# ---- verification: no working link that checks out = not in the directory ----
+
+_SOCIAL_DOMAINS = {"linkedin.com", "x.com", "twitter.com", "facebook.com",
+                   "instagram.com", "youtube.com", "tiktok.com", "medium.com"}
+
+
+def _name_tokens(name: str) -> list[str]:
+    return [t for t in re.findall(r"[a-z0-9]{3,}", name.lower())
+            if t not in _DESCRIPTOR_WORDS and t not in _GENERIC_TAILS]
+
+
+def verify_url(name: str, url: str) -> bool:
+    """A link is verified when it loads AND the entity's name appears on the
+    page (or in the domain). Social profiles don't count as official sites."""
+    if not url or not url.startswith("http"):
+        return False
+    domain = _domain(url)
+    if any(domain == s or domain.endswith("." + s) for s in _SOCIAL_DOMAINS):
+        return False
+    tokens = _name_tokens(name)
+    if not tokens:
+        return False
+    try:
+        import requests
+
+        resp = requests.get(url, timeout=12, allow_redirects=True,
+                            headers={"User-Agent": "masterbuilder-bot/0.1 "
+                                                   "(directory link check)"})
+        if resp.status_code >= 400:
+            return False
+        page = resp.text[:20000].lower()
+    except Exception:  # noqa: BLE001 — dead/slow link = not verified
+        return False
+    flat_domain = domain.replace("-", "").replace(".", "")
+    return any(t in page or t in flat_domain for t in tokens)
+
+
+def find_official_url(name: str, summary: str) -> str:
+    """Ask the model for the official site when extraction didn't give one.
+    A wrong guess is harmless — verify_url() gets the final word."""
+    text = llm.complete(
+        "You know official websites of companies, products, and organizations. "
+        "Reply with ONLY the official homepage URL (https://...) or the single "
+        "word NONE. No prose.",
+        f"Official website of: {name} — {summary}",
+        max_tokens=60,
+    )
+    if not text:
+        return ""
+    m = re.search(r"https?://[^\s\"'<>)\]]+", text)
+    return m.group(0).rstrip(".,") if m else ""
+
+
 def _parse_entities(text: str) -> list[dict]:
     """Best-effort JSON array parse — models love to add fences and prose."""
     start, end = text.find("["), text.rfind("]")
@@ -210,13 +263,20 @@ def upsert_entity(ent: dict, item: ResearchItem) -> str:
         post["last_seen"] = today
         if not post.get("summary") and ent["summary"]:
             post["summary"] = ent["summary"]
-        if not post.get("url") and ent["url"]:
-            post["url"] = ent["url"]
+        # try to get an unverified entity verified on every fresh sighting
+        if not post.get("verified"):
+            url = post.get("url") or ent["url"] or find_official_url(
+                ent["name"], ent["summary"])
+            if verify_url(ent["name"], url):
+                post["url"], post["verified"] = url, True
     else:
+        url = ent["url"] or find_official_url(ent["name"], ent["summary"])
+        verified = verify_url(ent["name"], url)
         post = frontmatter.Post(
             "",  # body is yours — the bot never writes below the frontmatter
             name=ent["name"], type=ent["type"], summary=ent["summary"],
-            url=ent["url"], first_seen=today, last_seen=today,
+            url=url if verified else (url or ""), verified=verified,
+            first_seen=today, last_seen=today,
             mention_count=1, mentions=[mention],
         )
         status = "new"
@@ -255,7 +315,7 @@ def build_from_research(day: str | None = None) -> tuple[int, int]:
 
 # ---------- reading (dashboard) -----------------------------------------------------
 
-def list_entities() -> list[dict]:
+def list_entities(verified_only: bool = False) -> list[dict]:
     """All entities' frontmatter, newest-seen first. Never raises."""
     d = knowledge_dir()
     if not d.exists():
@@ -264,6 +324,8 @@ def list_entities() -> list[dict]:
     for p in d.glob("*.md"):
         try:
             post = frontmatter.load(str(p))
+            if verified_only and not post.get("verified"):
+                continue
             out.append({
                 "slug": p.stem,
                 "path": str(p),
@@ -271,13 +333,36 @@ def list_entities() -> list[dict]:
                 "type": post.get("type", "other"),
                 "summary": post.get("summary", ""),
                 "url": post.get("url", ""),
+                "verified": bool(post.get("verified", False)),
                 "first_seen": str(post.get("first_seen", "")),
                 "last_seen": str(post.get("last_seen", "")),
                 "mention_count": post.get("mention_count", 0),
+                "mentions": post.get("mentions", []) or [],
             })
         except Exception:  # noqa: BLE001
             continue
     return sorted(out, key=lambda e: (e["last_seen"], e["mention_count"]), reverse=True)
+
+
+def reverify_all() -> tuple[int, int]:
+    """Re-run link verification over every entity. Returns (verified, total)."""
+    verified = total = 0
+    for p in knowledge_dir().glob("*.md"):
+        try:
+            post = frontmatter.load(str(p))
+        except Exception:  # noqa: BLE001
+            continue
+        total += 1
+        name = post.get("name", p.stem)
+        url = post.get("url") or find_official_url(name, post.get("summary", ""))
+        ok = verify_url(name, url)
+        post["verified"] = ok
+        if ok:
+            post["url"] = url
+            verified += 1
+        p.write_text(frontmatter.dumps(post), encoding="utf-8")
+    log("research", f"knowledge: re-verified — {verified}/{total} have working links")
+    return verified, total
 
 
 def load_entity(slug: str) -> frontmatter.Post | None:

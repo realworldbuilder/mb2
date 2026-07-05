@@ -17,6 +17,7 @@ import streamlit as st  # noqa: E402
 from masterbuilder_bot import storage  # noqa: E402
 from masterbuilder_bot.knowledge import (  # noqa: E402
     ENTITY_TYPES, build_from_research, knowledge_dir, list_entities, load_entity,
+    reverify_all,
 )
 
 st.set_page_config(page_title="Knowledge — Masterbuilder", page_icon="📚", layout="wide")
@@ -25,24 +26,43 @@ st.caption("The Masterbuilder directory — every company, tool, material, and p
            "the research crosses paths with. Grows automatically every morning.")
 mode_banner()
 
-entities = list_entities()
+all_entities = list_entities()
+verified_count = sum(1 for e in all_entities if e["verified"])
 
 # ---- stats ----------------------------------------------------------------------
 today = storage.today()
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Entities", len(entities))
-c2.metric("Added today", sum(1 for e in entities if e["first_seen"] == today))
-c3.metric("Seen today", sum(1 for e in entities if e["last_seen"] == today))
-c4.metric("Types", len({e["type"] for e in entities}))
+c1.metric("Verified (in directory)", verified_count)
+c2.metric("Unverified (quarantine)", len(all_entities) - verified_count)
+c3.metric("Added today", sum(1 for e in all_entities if e["first_seen"] == today))
+c4.metric("Types", len({e["type"] for e in all_entities}))
 
-with st.expander("⛏️ Mine today's research again (e.g. after adding sources)"):
-    st.caption("Re-runs entity extraction over today's research JSON. Existing "
-               "entries get new mentions; your notes in entity files are never touched.")
-    if st.button("Mine today's research"):
-        with st.spinner("Extracting entities with the local model — takes a few minutes..."):
-            new, updated = build_from_research()
-        st.success(f"{new} new, {updated} updated.")
-        st.rerun()
+st.caption("Only **verified** entities — working official link, name confirmed on "
+           "the page — get published to the masterbuilder.ai directory. Everything "
+           "else waits in quarantine until a future mention verifies it.")
+
+col_a, col_b = st.columns(2)
+with col_a:
+    with st.expander("⛏️ Mine today's research again"):
+        st.caption("Re-runs entity extraction over today's research JSON. Your "
+                   "notes in entity files are never touched.")
+        if st.button("Mine today's research"):
+            with st.spinner("Extracting + verifying with the local model — takes a few minutes..."):
+                new, updated = build_from_research()
+            st.success(f"{new} new, {updated} updated.")
+            st.rerun()
+with col_b:
+    with st.expander("🔗 Re-verify all links"):
+        st.caption("Re-checks every entity's link (and hunts for missing ones). "
+                   "Dead links get demoted to quarantine.")
+        if st.button("Re-verify everything"):
+            with st.spinner("Checking links..."):
+                ok, total = reverify_all()
+            st.success(f"{ok}/{total} entities verified.")
+            st.rerun()
+
+show_quarantine = st.toggle("Show unverified (quarantine)", value=False)
+entities = all_entities if show_quarantine else [e for e in all_entities if e["verified"]]
 
 if not entities:
     st.info("No entities yet. They get mined automatically during the daily run, "
@@ -62,7 +82,8 @@ shown = [e for e in entities
 st.caption(f"{len(shown)} of {len(entities)} entities")
 
 df = pd.DataFrame([{
-    "name": e["name"], "type": e["type"], "summary": e["summary"],
+    "name": e["name"], "verified": "✅" if e["verified"] else "—",
+    "type": e["type"], "summary": e["summary"],
     "mentions": e["mention_count"], "first seen": e["first_seen"],
     "last seen": e["last_seen"], "url": e["url"],
 } for e in shown])
