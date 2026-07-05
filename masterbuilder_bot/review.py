@@ -3,31 +3,59 @@ the dashboard, so behavior is identical everywhere.
 
 approve: drafts/<day>/x.md -> approved/<day>/x.md   (status: approved)
 reject:  drafts/<day>/x.md -> memory/rejected/<day>/x.md (status: rejected)
+
+Every decision is also logged to memory/feedback.jsonl (see feedback.py)
+— that log is what the voice learns from, so passing a short reason
+("too hype", "great hook") makes future drafts better.
 """
 
 from pathlib import Path
 
-from masterbuilder_bot import config, storage
+from masterbuilder_bot import config, feedback, storage
 from masterbuilder_bot.logging_utils import log
 
 
-def approve(path: Path) -> Path:
+def _meta(path: Path) -> tuple[str, str, str]:
+    """(type, title, body) for feedback logging. Never raises."""
+    try:
+        post = storage.load_post(Path(path))
+        return post.get("type", ""), post.get("title", ""), post.content
+    except Exception:  # noqa: BLE001
+        return "", "", ""
+
+
+def approve(path: Path, reason: str = "") -> Path:
+    dtype, title, body = _meta(path)
     dest = storage.set_status_and_move(Path(path), "approved", config.approved_dir())
+    feedback.log_event("approved", dest, dtype, title, reason, body)
     log("review", f"approved {dest.name} -> {dest.parent}")
     return dest
 
 
-def reject(path: Path) -> Path:
+def reject(path: Path, reason: str = "") -> Path:
+    dtype, title, body = _meta(path)
     dest = storage.set_status_and_move(Path(path), "rejected", config.rejected_dir())
+    feedback.log_event("rejected", dest, dtype, title, reason, body)
     log("review", f"rejected {Path(path).name} -> {dest.parent}")
     return dest
 
 
 def save_edit(path: Path, new_body: str) -> None:
-    """Replace a draft's body, keeping its frontmatter."""
+    """Replace a draft's body, keeping its frontmatter.
+
+    Logs before/after heads to feedback — your edits are the strongest
+    voice signal there is.
+    """
     post = storage.load_post(Path(path))
+    old_body = post.content
+    if new_body.strip() == old_body.strip():
+        return  # nothing changed, nothing to log
     post.content = new_body
     storage.save_post(Path(path), post)
+    feedback.log_event(
+        "edited", path, post.get("type", ""), post.get("title", ""),
+        body=new_body, extra={"before_head": old_body.strip()[:400]},
+    )
     log("review", f"edited {Path(path).name}")
 
 

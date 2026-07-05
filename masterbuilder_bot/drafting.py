@@ -16,7 +16,7 @@ with source links at the bottom of the body.
 from datetime import datetime
 from pathlib import Path
 
-from masterbuilder_bot import config, llm, storage
+from masterbuilder_bot import config, learning, llm, storage
 from masterbuilder_bot.logging_utils import log
 from masterbuilder_bot.models import DRAFT_PLAN, DraftMeta, ResearchItem
 
@@ -123,6 +123,19 @@ def _llm_draft(dtype: str, items: list[ResearchItem], brand: dict) -> str | None
         f"BRAND RULES:\n{brand['rules']}\n\n"
         f"BRAND TOPICS:\n{brand['topics']}"
     )
+
+    # Learning loop: lessons distilled from William's reviews + real
+    # engagement, and exemplar posts that already earned approval/likes.
+    lessons = learning.load_lessons()
+    if lessons:
+        system += ("\n\nVOICE LESSONS (learned from what got approved, rejected, "
+                   "edited, and what the audience engaged with — follow these "
+                   "over generic instincts):\n" + lessons)
+    exemplars = learning.top_exemplars(3)
+    if exemplars:
+        shots = "\n\n".join(f"[{e['why']}]\n{e['text']}" for e in exemplars)
+        system += ("\n\nEXEMPLARS — real posts that worked. Match their energy "
+                   "and concreteness, don't copy their content:\n" + shots)
     user = (
         f"Today's research items:\n{research_block}\n\n"
         f"Write {TYPE_INSTRUCTIONS[dtype]}.\n"

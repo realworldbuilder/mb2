@@ -1,0 +1,133 @@
+"""The learning loop: turn William's decisions and real engagement into
+voice guidance the drafter reads on every run.
+
+Signals, strongest first:
+  1. Edits — the exact words he changed (before/after pairs)
+  2. Reject reasons — "too hype", "sounds like AI", ...
+  3. Approve reasons — "great hook", "concrete numbers", ...
+  4. X engagement — what the audience actually rewarded
+
+Output: memory/voice_lessons.md — a short do/don't list plus real
+exemplars. drafting.py appends it to the system prompt, so the voice
+tightens a little every time William reviews or the audience reacts.
+
+If an LLM is available it distills the raw signals into crisp rules;
+otherwise the raw digest itself is the lessons file (still useful).
+"""
+
+from datetime import datetime
+
+from masterbuilder_bot import config, feedback, llm, metrics, storage
+from masterbuilder_bot.logging_utils import log
+
+MAX_LESSON_CHARS = 4000  # keep the prompt lean
+
+
+def lessons_file():
+    return config.memory_dir() / "voice_lessons.md"
+
+
+def load_lessons() -> str:
+    path = lessons_file()
+    if not path.exists():
+        return ""
+    return path.read_text(encoding="utf-8").strip()[:MAX_LESSON_CHARS]
+
+
+def top_exemplars(n: int = 3) -> list[dict]:
+    """Best real posts to show the drafter: highest-engagement posted
+    items first, topped up with the newest approved ones."""
+    out, seen = [], set()
+    for row in metrics.ranked()[:n]:
+        if row.get("body_head"):
+            out.append({"why": f"engagement score {row['score']}",
+                        "text": row["body_head"]})
+            seen.add(row["body_head"][:80])
+    if len(out) < n:
+        for path in storage.list_approved() + storage.list_posted():
+            if len(out) >= n:
+                break
+            try:
+                body = storage.load_post(path).content.strip()[:280]
+            except Exception:  # noqa: BLE001
+                continue
+            if body and body[:80] not in seen:
+                out.append({"why": "approved by William", "text": body})
+                seen.add(body[:80])
+    return out[:n]
+
+
+def _digest() -> str:
+    """Raw signal digest — LLM input, and the fallback lessons file."""
+    events = feedback.load_events(limit=200)
+    tallies = feedback.counts(events)
+    lines = [f"Review history: {tallies['approved']} approved, "
+             f"{tallies['rejected']} rejected, {tallies['edited']} edited."]
+
+    if tallies["reasons"]:
+        top = sorted(tallies["reasons"].items(), key=lambda kv: -kv[1])[:10]
+        lines.append("Most common review reasons: "
+                     + ", ".join(f"{r} (x{c})" for r, c in top))
+
+    rejects = [e for e in events if e["action"] == "rejected"][-5:]
+    if rejects:
+        lines.append("\nRecently REJECTED (avoid writing like this):")
+        for e in rejects:
+            why = f" — reason: {e['reason']}" if e.get("reason") else ""
+            lines.append(f"- [{e.get('type', '?')}]{why}\n  \"{e.get('body_head', '')[:200]}\"")
+
+    edits = [e for e in events if e["action"] == "edited" and e.get("before_head")][-5:]
+    if edits:
+        lines.append("\nRecent EDITS (his rewrite is the target voice):")
+        for e in edits:
+            lines.append(f"- BEFORE: \"{e['before_head'][:150]}\"\n"
+                         f"  AFTER:  \"{e.get('body_head', '')[:150]}\"")
+
+    rows = metrics.ranked()
+    if rows:
+        lines.append("\nTop performers on X (audience-validated):")
+        for r in rows[:3]:
+            lines.append(f"- score {r['score']} ({r.get('likes', 0)} likes, "
+                         f"{r.get('impressions', 0)} impressions): \"{r.get('body_head', '')[:200]}\"")
+        flops = [r for r in reversed(rows) if r.get("impressions", 0) > 200][:2]
+        if flops:
+            lines.append("Weakest performers (seen but ignored):")
+            for r in flops:
+                lines.append(f"- score {r['score']}: \"{r.get('body_head', '')[:150]}\"")
+
+    return "\n".join(lines)
+
+
+def rebuild(force_template: bool = False) -> str:
+    """Regenerate memory/voice_lessons.md. Returns the lessons text."""
+    events = feedback.load_events(limit=200)
+    has_metrics = bool(metrics.load())
+    if not events and not has_metrics:
+        return load_lessons()  # nothing to learn from yet — keep whatever exists
+
+    digest = _digest()
+    lessons = None
+    if not force_template:
+        lessons = llm.complete(
+            system=(
+                "You improve the writing voice for masterbuilder.ai — content for "
+                "people who build real things (AI, construction, robotics, space). "
+                "You will receive raw review/engagement signals about past drafts. "
+                "Distill them into AT MOST 10 short, specific do/don't rules a "
+                "writer can follow. Quote actual phrases from the signals as "
+                "evidence where possible. No generic advice ('be engaging'), no "
+                "preamble. Output plain markdown bullets under two headers: "
+                "'## Do' and '## Don't'."
+            ),
+            user=digest,
+            max_tokens=800,
+        )
+    body = lessons.strip() if lessons else ("## Raw signals (no LLM available)\n\n" + digest)
+    stamp = datetime.now().isoformat(timespec="seconds")
+    content = (f"<!-- auto-generated by learning.rebuild() at {stamp} — "
+               "edit freely, next rebuild overwrites -->\n\n" + body + "\n")
+    config.ensure_data_dirs()
+    lessons_file().write_text(content, encoding="utf-8")
+    log("learning", f"voice lessons rebuilt ({'llm' if lessons else 'template'}, "
+                    f"{len(events)} feedback events, metrics: {has_metrics})")
+    return content[:MAX_LESSON_CHARS]

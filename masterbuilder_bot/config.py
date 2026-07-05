@@ -33,6 +33,17 @@ SECRET_KEYS = (
     "X_API_SECRET",
     "X_ACCESS_TOKEN",
     "X_ACCESS_TOKEN_SECRET",
+    "LINKEDIN_ACCESS_TOKEN",
+    "SUBSTACK_PASSWORD",
+)
+
+# Non-secret settings the Connections page may read/write in .env.
+SETTING_KEYS = (
+    "SUBSTACK_EMAIL",
+    "SUBSTACK_PUBLICATION_URL",
+    "SUBSTACK_AUTO_PUBLISH",
+    "LINKEDIN_AUTHOR_URN",
+    "X_HANDLE",
 )
 
 
@@ -107,13 +118,19 @@ def secret_status() -> dict:
     return {k: bool(os.environ.get(k, "").strip()) for k in SECRET_KEYS}
 
 
-def set_bot_mode(mode: str) -> None:
-    """Rewrite BOT_MODE in .env (creating the line if missing).
+def set_env_key(key: str, value: str) -> None:
+    """Rewrite one KEY=value line in .env (creating it if missing).
 
-    Only touches the BOT_MODE line — secrets stay exactly as they are.
+    Only known keys may be written — BOT_MODE, secrets, and settings —
+    so the dashboard can never scribble arbitrary lines into .env.
+    Only that one line is touched; everything else stays exactly as it is.
     """
-    if mode not in VALID_MODES:
-        raise ValueError(f"invalid mode: {mode!r} (valid: {VALID_MODES})")
+    allowed = ("BOT_MODE",) + SECRET_KEYS + SETTING_KEYS
+    if key not in allowed:
+        raise ValueError(f"refusing to write unknown env key: {key!r}")
+    value = value.strip()
+    if "\n" in value:
+        raise ValueError(f"invalid value for {key}: newlines not allowed")
 
     lines: list[str] = []
     if ENV_FILE.exists():
@@ -121,12 +138,19 @@ def set_bot_mode(mode: str) -> None:
 
     replaced = False
     for i, line in enumerate(lines):
-        if line.strip().startswith("BOT_MODE="):
-            lines[i] = f"BOT_MODE={mode}"
+        if line.strip().startswith(f"{key}="):
+            lines[i] = f"{key}={value}"
             replaced = True
             break
     if not replaced:
-        lines.append(f"BOT_MODE={mode}")
+        lines.append(f"{key}={value}")
 
     ENV_FILE.write_text("\n".join(lines) + "\n")
-    os.environ["BOT_MODE"] = mode
+    os.environ[key] = value
+
+
+def set_bot_mode(mode: str) -> None:
+    """Rewrite BOT_MODE in .env (creating the line if missing)."""
+    if mode not in VALID_MODES:
+        raise ValueError(f"invalid mode: {mode!r} (valid: {VALID_MODES})")
+    set_env_key("BOT_MODE", mode)

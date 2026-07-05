@@ -8,7 +8,7 @@ from _shared import mode_banner  # noqa: E402
 
 import streamlit as st  # noqa: E402
 
-from masterbuilder_bot import review, storage  # noqa: E402
+from masterbuilder_bot import feedback, review, storage  # noqa: E402
 
 st.set_page_config(page_title="Drafts — Masterbuilder", page_icon="✍️", layout="wide")
 st.title("✍️ Drafts")
@@ -44,19 +44,29 @@ else:
 body = st.text_area("Draft body (Markdown)", post.content, height=400,
                     key=f"body-{selected['path']}")
 
+# ---- feedback (optional, teaches the voice) ------------------------------------
+tags = st.multiselect(
+    "Why? (optional — every reason makes tomorrow's drafts better)",
+    feedback.APPROVE_TAGS + feedback.REJECT_TAGS,
+    key=f"tags-{selected['path']}",
+)
+note = st.text_input("Or say it your way", key=f"note-{selected['path']}",
+                     placeholder="e.g. hook is weak, bury the company name, more numbers")
+reason = "; ".join(tags + ([note.strip()] if note.strip() else []))
+
 e1, e2, e3 = st.columns(3)
 if e1.button("💾 Save changes", use_container_width=True):
     review.save_edit(path, body)
-    st.success("Saved.")
+    st.success("Saved. (Your edits teach the voice too.)")
 
 if e2.button("✅ Approve", use_container_width=True, type="primary"):
     review.save_edit(path, body)  # keep any unsaved edits
-    dest = review.approve(path)
+    dest = review.approve(path, reason=reason)
     st.success(f"Approved → {dest.parent.name}/{dest.name}")
     st.rerun()
 
 if e3.button("🗑️ Reject", use_container_width=True):
-    dest = review.reject(path)
+    dest = review.reject(path, reason=reason)
     st.info(f"Rejected → memory/rejected/{dest.parent.name}/{dest.name}")
     st.rerun()
 
