@@ -129,7 +129,28 @@ def _research_block(dtype: str, items: list[ResearchItem]) -> str:
     )
 
 
-def _llm_draft(dtype: str, items: list[ResearchItem], brand: dict) -> str | None:
+X_POST_MAX = 260  # solo posts must fit in one tweet, with headroom
+
+
+def _tighten_x_post(body: str) -> str:
+    """One revision pass when a solo post runs long. If the edit fails or
+    is still long, keep the original — William can trim in review and the
+    X publisher would thread it rather than clip it."""
+    edited = llm.complete(
+        system=("You tighten X posts. Cut the text to UNDER 260 characters. "
+                "Keep every concrete number and the fact-first opening line; "
+                "cut adjectives, asides, and the weakest sentence. Return "
+                "only the edited post."),
+        user=body,
+        max_tokens=300,
+    )
+    if edited and len(edited) <= X_POST_MAX and len(edited) >= 60:
+        return edited
+    return body
+
+
+def _llm_draft(dtype: str, items: list[ResearchItem], brand: dict,
+               day: str) -> str | None:
     """Return draft body text, or None if no provider / call failed."""
     research_block = _research_block(dtype, items)
 
@@ -197,12 +218,16 @@ def _llm_draft(dtype: str, items: list[ResearchItem], brand: dict) -> str | None
         "separately.\n"
     )
     user = (
+        f"Today's date: {day}\n\n"
         f"Today's research items:\n{research_block}\n\n"
         f"Write {TYPE_INSTRUCTIONS[dtype]}.\n"
         + url_rule +
         "Return ONLY the content itself, no preamble, no meta-commentary."
     )
-    return llm.complete(system, user, max_tokens=1500)
+    body = llm.complete(system, user, max_tokens=1500)
+    if body and dtype == "x_post" and len(body) > X_POST_MAX:
+        body = _tighten_x_post(body)
+    return body
 
 
 # ---------- template fallback engine ----------
@@ -295,7 +320,7 @@ def generate_drafts(day: str | None = None) -> tuple[list[Path], str]:
     for dtype, count in DRAFT_PLAN:
         for n in range(count):
             picked = _assign_items(ranked, dtype, n)
-            body = _llm_draft(dtype, picked, brand)
+            body = _llm_draft(dtype, picked, brand, day)
             if body:
                 llm_count += 1
             else:
