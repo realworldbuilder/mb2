@@ -1,0 +1,13 @@
+# Masterbuilder Command Center theme — the grey "working set" counterpart
+# to the public site's blueprint. Widget-level colors live here; the full
+# drawing-set styling is injected as CSS by dashboard/_shared.py.
+[theme]
+base = "dark"
+primaryColor = "#ff6b4a"
+backgroundColor = "#17191d"
+secondaryBackgroundColor = "#1e2126"
+textColor = "#d6dade"
+font = "monospace"
+
+[browser]
+gatherUsageStats = false

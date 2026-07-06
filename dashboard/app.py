@@ -1,13 +1,15 @@
-"""Masterbuilder Command Center — home page.
+"""Masterbuilder Command Center — home page: the pipeline, as a drawing.
 
 Run via: python scripts/run_dashboard.py  (localhost only)
 """
+
+from datetime import date
 
 import streamlit as st
 
 from _shared import mode_banner  # noqa: I001 — bootstraps sys.path first
 
-from masterbuilder_bot import config, storage
+from masterbuilder_bot import config, learning, storage
 from masterbuilder_bot.drafting import generate_drafts
 from masterbuilder_bot.llm import llm_status
 from masterbuilder_bot.logging_utils import read_log_lines
@@ -15,40 +17,90 @@ from masterbuilder_bot.research import run_daily_research
 
 st.set_page_config(page_title="Masterbuilder Command Center", page_icon="🧱",
                    layout="wide")
-
-st.title("🧱 Masterbuilder Command Center")
-st.caption("boots and bits · draft first, approval second, posting last")
 mode_banner()
 
-# ---- status cards -----------------------------------------------------------
+# ---- title block --------------------------------------------------------------
+llm = llm_status()
+st.markdown(f"""
+<div class='mb-stamp'>backend<span>not for publication</span></div>
+<div class='mb-head'>
+  <div class='tb-main'>
+    <h1>🧱 Masterbuilder Command Center</h1>
+    <p>boots and bits · the working set behind the field manual</p>
+  </div>
+  <div class='tb-side'>
+    <div><span class='lbl'>project</span>masterbuilder.ai</div>
+    <div><span class='lbl'>sheet</span>WS-001</div>
+    <div><span class='lbl'>issued</span>{date.today().isoformat()}</div>
+    <div><span class='lbl'>engine</span>{llm['provider']} · {llm['model']}</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+# ---- the pipeline ---------------------------------------------------------------
 day = storage.today()
 research_items = storage.load_research(day)
 drafts = storage.list_drafts(day)
+pending = 0
+for p in drafts:
+    try:
+        if storage.load_post(p).get("status", "draft") == "draft":
+            pending += 1
+    except Exception:  # noqa: BLE001
+        pending += 1
 approved = storage.list_approved()
+posted = storage.list_posted()
+ledger = learning.load_ledger()
+takes = sum(1 for ln in ledger.splitlines() if ln.lstrip().startswith("- "))
 
 last_research = "never"
 for line in read_log_lines():
     if "[research]" in line and "saved" in line:
         last_research = line.split(" ")[0]
         break
+research_sub = ("ran " + last_research.split("T")[-1][:5]
+                if "T" in last_research else last_research)
 
-c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("Last research run", last_research.split("T")[-1] if "T" in last_research else last_research,
-          last_research.split("T")[0] if "T" in last_research else None)
-c2.metric("Research items today", len(research_items))
-c3.metric("Drafts today", len(drafts))
-c4.metric("Approved (all time)", len(approved))
-c5.metric("BOT_MODE", config.bot_mode())
 
-llm = llm_status()
-st.caption(f"LLM: **{llm['provider']}** · model: `{llm['model']}`"
-           + (f" · base_url: `{llm['base_url']}`" if llm["base_url"] != "-" else ""))
+def stage(num: str, name: str, val, sub: str, hot: bool = False) -> str:
+    cls = "val hot" if hot else "val"
+    return (f"<div class='mb-stage'><span class='num'>{num}</span>"
+            f"<span class='name'>{name}</span>"
+            f"<span class='{cls}'>{val}</span>"
+            f"<span class='sub'>{sub}</span></div>")
+
+
+st.markdown(
+    "<div class='mb-pipe'>"
+    + stage("01", "Research", len(research_items), research_sub)
+    + "<div class='mb-arrow'>▸</div>"
+    + stage("02", "Draft", len(drafts), "drafts today")
+    + "<div class='mb-arrow'>▸</div>"
+    + stage("03", "Review", pending, "await your call", hot=pending > 0)
+    + "<div class='mb-arrow'>▸</div>"
+    + stage("04", "Approved", len(approved), "ready to post")
+    + "<div class='mb-arrow'>▸</div>"
+    + stage("05", "Posted", len(posted), "live, all time")
+    + "<div class='mb-arrow'>▸</div>"
+    + stage("06", "Learn", takes, "takes on record")
+    + "</div>",
+    unsafe_allow_html=True,
+)
+
+# one link under each stage, aligned with the boxes above
+l1, l2, l3, l4, l5, l6 = st.columns(6)
+l1.page_link("pages/1_Research.py", label="open research", icon="🔍")
+l2.page_link("pages/2_Drafts.py", label="open drafts", icon="✍️")
+l3.page_link("pages/2_Drafts.py", label="review queue", icon="📋")
+l4.page_link("pages/3_Approved.py", label="open approved", icon="🚀")
+l5.page_link("pages/9_Performance.py", label="performance", icon="📈")
+l6.page_link("pages/9_Performance.py", label="voice lessons", icon="🧠")
 
 st.divider()
 
-# ---- big buttons -------------------------------------------------------------
+# ---- run the bot ----------------------------------------------------------------
 st.subheader("Run the bot")
-b1, b2, b3, b4 = st.columns(4)
+b1, b2, b3 = st.columns(3)
 
 if b1.button("🔍 Run Daily Research", use_container_width=True):
     with st.spinner("Pulling sources... (can take a minute)"):
@@ -73,10 +125,5 @@ if b3.button("🚀 Run Full Daily Pipeline", use_container_width=True):
                "Nothing approved, nothing posted.")
     st.rerun()
 
-if b4.button("📋 Open Review Queue", use_container_width=True):
-    st.switch_page("pages/2_Drafts.py")
-
-st.divider()
-st.caption("Pages: **Research** (mark useful/ignore) · **Drafts** (edit/approve/reject) · "
-           "**Approved** (dry-run preview) · **Settings** (brand + sources + mode) · "
-           "**Logs** (runs.log)")
+st.caption("the 6 AM run does all of this on its own — these buttons are for "
+           "impatient mornings")
