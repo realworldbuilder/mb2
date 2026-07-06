@@ -33,7 +33,7 @@ SITE_BASE = "https://realworldbuilder.github.io/mb2/"  # update when masterbuild
 # section-cut with redline hatch, architectural tick dimension below
 HOME_FIG = """<figure class="detail-fig"><svg viewBox="0 0 220 130" xmlns="http://www.w3.org/2000/svg">
 <defs><pattern id="hatch" width="6" height="6" patternTransform="rotate(45)"
-patternUnits="userSpaceOnUse"><line x1="0" y1="0" x2="0" y2="6" stroke="#ff6b4a"
+patternUnits="userSpaceOnUse"><line x1="0" y1="0" x2="0" y2="6" stroke="var(--redline)"
 stroke-width="1.1"/></pattern></defs>
 <g stroke="currentColor" fill="none" stroke-width="1.2">
 <rect x="20" y="12" width="55" height="16"/><rect x="79" y="12" width="55" height="16"/><rect x="138" y="12" width="55" height="16"/>
@@ -42,8 +42,8 @@ stroke-width="1.1"/></pattern></defs>
 <rect x="20" y="72" width="27" height="16"/><rect x="51" y="72" width="55" height="16"/><rect x="110" y="72" width="55" height="16"/><rect x="169" y="72" width="24" height="16"/>
 <line x1="20" y1="94" x2="20" y2="114"/><line x1="193" y1="94" x2="193" y2="114"/>
 <line x1="20" y1="108" x2="193" y2="108"/>
-<line x1="15" y1="113" x2="25" y2="103" stroke="#ff6b4a" stroke-width="1.6"/>
-<line x1="188" y1="113" x2="198" y2="103" stroke="#ff6b4a" stroke-width="1.6"/>
+<line x1="15" y1="113" x2="25" y2="103" stroke="var(--redline)" stroke-width="1.6"/>
+<line x1="188" y1="113" x2="198" y2="103" stroke="var(--redline)" stroke-width="1.6"/>
 </g>
 <text x="106" y="102" text-anchor="middle" font-size="9" fill="currentColor"
 font-family="inherit" letter-spacing="1">2'-0&quot; NOM.</text>
@@ -53,11 +53,37 @@ font-family="inherit" letter-spacing="1">2'-0&quot; NOM.</text>
 def stamp(top: str, sub: str) -> str:
     return f"<div class='stamp'>{top}<span>{sub}</span></div>"
 
+
+# theme is applied in <head> before first paint so there's no flash, then the
+# menu button flips it and remembers the choice. plain JS, no framework.
+HEAD_JS = ("<script>document.documentElement.dataset.theme="
+           "localStorage.getItem('mb-theme')||'dark';</script>")
+MODE_JS = """<script>
+(function () {
+  var b = document.getElementById('mode'), h = document.documentElement;
+  function label() { b.textContent = h.dataset.theme === 'light' ? 'dark mode' : 'light mode'; }
+  b.onclick = function () {
+    h.dataset.theme = h.dataset.theme === 'light' ? 'dark' : 'light';
+    localStorage.setItem('mb-theme', h.dataset.theme);
+    label();
+  };
+  label();
+})();
+</script>"""
+
 CSS = """
-/* blueprint: chalk-white line work on drafting-blue grid paper, redline accents */
+/* blueprint: chalk-white line work on drafting-blue grid paper, redline accents.
+   light mode = whiteprint: blue ink on vellum, toggled from the menu. */
 :root { --paper:#0e2740; --ink:#dae7f3; --dim:#8aa7c2; --line:#3d5f80;
         --line-soft:#2b4964; --redline:#ff6b4a;
-        --grid:rgba(214,230,245,.05); --grid-major:rgba(214,230,245,.11); }
+        --grid:rgba(214,230,245,.05); --grid-major:rgba(214,230,245,.11);
+        --cell:#11293f; --sheet-bg:rgba(11,31,51,.62);
+        --hover:rgba(214,230,245,.04); }
+html[data-theme="light"] { --paper:#f1efe7; --ink:#22405e; --dim:#6d8196;
+        --line:#9db2c4; --line-soft:#c9d5de; --redline:#d94a28;
+        --grid:rgba(34,64,94,.07); --grid-major:rgba(34,64,94,.14);
+        --cell:#e9e5d9; --sheet-bg:rgba(255,253,247,.6);
+        --hover:rgba(34,64,94,.05); }
 * { box-sizing:border-box; margin:0; }
 body { background-color:var(--paper);
        background-image:
@@ -72,7 +98,7 @@ body { background-color:var(--paper);
 ::selection { background:var(--redline); color:var(--paper); }
 .sheet { max-width:920px; margin:0 auto; padding:1.5rem 1.7rem 2rem;
          border:2px solid var(--ink); outline:1px solid var(--line); outline-offset:5px;
-         background:rgba(11,31,51,.62); }
+         background:var(--sheet-bg); }
 a { color:var(--ink); text-decoration:underline; text-decoration-style:dashed;
     text-decoration-color:var(--dim); text-underline-offset:3px; }
 a:hover { color:var(--redline); text-decoration-color:var(--redline); }
@@ -86,13 +112,16 @@ header.site h1 a, nav.plan a { color:var(--ink); text-decoration:none; }
 header.site p.tagline { color:var(--dim); font-size:.75rem; margin-top:.35rem; }
 .tb-side { border-left:1px solid var(--ink); display:grid; min-width:240px;
            grid-template-columns:1fr 1fr; gap:1px; background:var(--ink); }
-.tb-side div { padding:.35rem .7rem; font-size:.74rem; background:#11293f; }
+.tb-side div { padding:.35rem .7rem; font-size:.74rem; background:var(--cell); }
 nav.plan { border:1px solid var(--ink); border-top:none; padding:.5rem 1.1rem;
            margin-bottom:2.2rem; font-size:.72rem; letter-spacing:2px;
-           text-transform:uppercase; }
-nav.plan a { margin-right:1.8rem; }
-nav.plan a::before { content:'\\25B8\\20 '; color:var(--redline); }
+           text-transform:uppercase; display:flex; flex-wrap:wrap; gap:.4rem 1.8rem;
+           align-items:baseline; }
+nav.plan a::before, #mode::before { content:'\\25B8\\20 '; color:var(--redline); }
 nav.plan a:hover { color:var(--redline); }
+#mode { margin-left:auto; background:none; border:none; padding:0; color:var(--ink);
+        font:inherit; letter-spacing:inherit; text-transform:inherit; cursor:pointer; }
+#mode:hover { color:var(--redline); }
 body { counter-reset:detail; }
 h2 { margin:2.2rem 0 1rem; font-size:.92rem; font-weight:normal; text-transform:uppercase;
      letter-spacing:3px; border-bottom:1px dashed var(--line); padding-bottom:.5rem;
@@ -136,7 +165,7 @@ th, td { text-align:left; padding:.55rem .65rem; vertical-align:top; }
 th { color:var(--dim); font-size:.65rem; text-transform:uppercase; letter-spacing:2px;
      font-weight:normal; border-bottom:2px solid var(--ink); }
 td { border-bottom:1px solid var(--line-soft); }
-tr:hover td { background:rgba(214,230,245,.04); }
+tr:hover td { background:var(--hover); }
 .type { color:var(--dim); font-size:.72rem; text-transform:uppercase; letter-spacing:1px; }
 footer { margin-top:3rem; border:1px solid var(--ink); display:flex; flex-wrap:wrap;
          font-size:.78rem; }
@@ -187,6 +216,7 @@ def page(title: str, body: str, depth: int = 0, sheet: str = "A-001",
 <meta name="description" content="{html.escape(TAGLINE)}">
 <title>{html.escape(title)} — {SITE_NAME}</title>
 <link rel="icon" href="{FAVICON}">
+{HEAD_JS}
 <link rel="stylesheet" href="{prefix}style.css"></head><body>
 <div class="sheet">
 <header class="site">
@@ -202,7 +232,8 @@ def page(title: str, body: str, depth: int = 0, sheet: str = "A-001",
   </div>
 </header>
 <nav class="plan"><a href="{prefix}index.html">field manual</a>
-     <a href="{prefix}directory/index.html">directory</a></nav>
+     <a href="{prefix}directory/index.html">directory</a>
+     <button id="mode" type="button">light mode</button></nav>
 {body}
 <footer>
   <div><span class="lbl">drawn by</span>the bot</div>
@@ -210,6 +241,7 @@ def page(title: str, body: str, depth: int = 0, sheet: str = "A-001",
   <div><span class="lbl">note</span>every claim links its source</div>
 </footer>
 </div>
+{MODE_JS}
 </body></html>"""
 
 
