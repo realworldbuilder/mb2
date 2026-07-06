@@ -37,7 +37,15 @@ STYLE = """
 }
 html, body, .stApp, .stApp * { font-family:ui-monospace,'SF Mono',Menlo,
   Consolas,'Liberation Mono',monospace !important; }
+/* the monospace override must NOT hit Streamlit's icon ligatures, or the
+   chevrons render as raw text like "keyboard_double_arrow_right" */
+[data-testid="stIconMaterial"], [class*="material-symbols"],
+span[translate="no"] {
+  font-family:'Material Symbols Rounded' !important; }
 ::selection { background:var(--redline); color:var(--paper); }
+
+/* long URLs (sources lists) must wrap, not overlap */
+.stMarkdown, .stMarkdown p, .stMarkdown li { overflow-wrap:anywhere; }
 
 /* the sheet: main content gets the drawing border */
 .block-container { border:2px solid var(--ink); outline:1px solid var(--line);
@@ -87,7 +95,8 @@ hr { border:none; border-top:1px dashed var(--line); }
   border-left:2px solid var(--redline); }
 [data-testid="stMetricLabel"] { text-transform:uppercase; letter-spacing:1.5px;
   color:var(--dim) !important; font-size:.66rem !important; }
-[data-testid="stMetricValue"] { color:var(--ink); }
+[data-testid="stMetricValue"] { color:var(--ink); font-size:1.3rem !important;
+  overflow-wrap:anywhere; }
 
 /* inputs, selects, textareas: cells on the sheet */
 .stTextInput input, .stTextArea textarea, .stSelectbox [data-baseweb],
