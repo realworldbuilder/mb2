@@ -21,6 +21,13 @@ from masterbuilder_bot.logging_utils import log, log_error
 API = "https://api.x.com/2"
 REQUIRED_KEYS = ("X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_TOKEN_SECRET")
 TWEET_LIMIT = 280
+_URL_RE = re.compile(r"https?://\S+")
+
+
+def tweet_len(text: str) -> int:
+    """Effective tweet length: X wraps every URL in t.co, so each URL
+    counts as 23 characters no matter how long it really is."""
+    return len(_URL_RE.sub("x" * 23, text))
 
 
 def missing_keys() -> list[str]:
@@ -71,21 +78,25 @@ def split_thread(text: str) -> list[str]:
     numbered = [p for p in paras if re.match(r"^\d+\s*/", p)]
     if len(numbered) >= 2:
         return [_clip(t) for t in numbered]
-    if len(text) <= TWEET_LIMIT:
+    if tweet_len(text) <= TWEET_LIMIT:
         return [text]
 
-    # Pack paragraphs (and bullet lines within them) into tweet-sized chunks.
+    # Pack paragraphs (and bullet lines within them) into tweet-sized
+    # chunks. A paragraph that ends in a URL (reading-list item) keeps its
+    # internal line break so the link stays on its own line.
     units: list[str] = []
     for p in paras:
         lines = p.splitlines()
         if all(ln.lstrip().startswith(("- ", "* ", "• ")) for ln in lines):
             units.extend(ln.strip() for ln in lines)
+        elif _URL_RE.search(p):
+            units.append(p)
         else:
             units.append(p.replace("\n", " "))
     tweets, current = [], ""
     for u in units:
         candidate = f"{current}\n\n{u}" if current else u
-        if len(candidate) <= TWEET_LIMIT:
+        if tweet_len(candidate) <= TWEET_LIMIT:
             current = candidate
         else:
             if current:
@@ -97,14 +108,22 @@ def split_thread(text: str) -> list[str]:
 
 
 def _clip(tweet: str) -> str:
-    if len(tweet) <= TWEET_LIMIT:
+    if tweet_len(tweet) <= TWEET_LIMIT:
         return tweet
-    cut = tweet[: TWEET_LIMIT - 1]
+    # never clip away a trailing URL — trim the prose in front of it
+    m = re.search(r"\s*(https?://\S+)\s*$", tweet)
+    tail = m.group(1) if m else ""
+    head = tweet[: m.start()] if m else tweet
+    budget = TWEET_LIMIT - (24 if tail else 0)  # 23 for t.co + newline
+    cut = head[: budget - 1]
     for sep in (". ", "! ", "? ", " "):
         i = cut.rfind(sep)
         if i > 100:
-            return cut[: i + 1].strip() + ("" if sep != " " else "…")
-    return cut.strip() + "…"
+            head = cut[: i + 1].strip() + ("" if sep != " " else "…")
+            break
+    else:
+        head = cut.strip() + "…"
+    return head + (f"\n{tail}" if tail else "")
 
 
 def _strip_sources_footer(text: str) -> str:
