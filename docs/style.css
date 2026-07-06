@@ -1,8 +1,16 @@
 
-/* blueprint: chalk-white line work on drafting-blue grid paper, redline accents */
+/* blueprint: chalk-white line work on drafting-blue grid paper, redline accents.
+   light mode = whiteprint: blue ink on vellum, toggled from the menu. */
 :root { --paper:#0e2740; --ink:#dae7f3; --dim:#8aa7c2; --line:#3d5f80;
         --line-soft:#2b4964; --redline:#ff6b4a;
-        --grid:rgba(214,230,245,.05); --grid-major:rgba(214,230,245,.11); }
+        --grid:rgba(214,230,245,.05); --grid-major:rgba(214,230,245,.11);
+        --cell:#11293f; --sheet-bg:rgba(11,31,51,.62);
+        --hover:rgba(214,230,245,.04); }
+html[data-theme="light"] { --paper:#f1efe7; --ink:#22405e; --dim:#6d8196;
+        --line:#9db2c4; --line-soft:#c9d5de; --redline:#d94a28;
+        --grid:rgba(34,64,94,.07); --grid-major:rgba(34,64,94,.14);
+        --cell:#e9e5d9; --sheet-bg:rgba(255,253,247,.6);
+        --hover:rgba(34,64,94,.05); }
 * { box-sizing:border-box; margin:0; }
 body { background-color:var(--paper);
        background-image:
@@ -17,7 +25,7 @@ body { background-color:var(--paper);
 ::selection { background:var(--redline); color:var(--paper); }
 .sheet { max-width:920px; margin:0 auto; padding:1.5rem 1.7rem 2rem;
          border:2px solid var(--ink); outline:1px solid var(--line); outline-offset:5px;
-         background:rgba(11,31,51,.62); }
+         background:var(--sheet-bg); }
 a { color:var(--ink); text-decoration:underline; text-decoration-style:dashed;
     text-decoration-color:var(--dim); text-underline-offset:3px; }
 a:hover { color:var(--redline); text-decoration-color:var(--redline); }
@@ -31,13 +39,16 @@ header.site h1 a, nav.plan a { color:var(--ink); text-decoration:none; }
 header.site p.tagline { color:var(--dim); font-size:.75rem; margin-top:.35rem; }
 .tb-side { border-left:1px solid var(--ink); display:grid; min-width:240px;
            grid-template-columns:1fr 1fr; gap:1px; background:var(--ink); }
-.tb-side div { padding:.35rem .7rem; font-size:.74rem; background:#11293f; }
+.tb-side div { padding:.35rem .7rem; font-size:.74rem; background:var(--cell); }
 nav.plan { border:1px solid var(--ink); border-top:none; padding:.5rem 1.1rem;
            margin-bottom:2.2rem; font-size:.72rem; letter-spacing:2px;
-           text-transform:uppercase; }
-nav.plan a { margin-right:1.8rem; }
-nav.plan a::before { content:'\25B8\20 '; color:var(--redline); }
+           text-transform:uppercase; display:flex; flex-wrap:wrap; gap:.4rem 1.8rem;
+           align-items:baseline; }
+nav.plan a::before, #mode::before { content:'\25B8\20 '; color:var(--redline); }
 nav.plan a:hover { color:var(--redline); }
+#mode { margin-left:auto; background:none; border:none; padding:0; color:var(--ink);
+        font:inherit; letter-spacing:inherit; text-transform:inherit; cursor:pointer; }
+#mode:hover { color:var(--redline); }
 body { counter-reset:detail; }
 h2 { margin:2.2rem 0 1rem; font-size:.92rem; font-weight:normal; text-transform:uppercase;
      letter-spacing:3px; border-bottom:1px dashed var(--line); padding-bottom:.5rem;
@@ -81,7 +92,7 @@ th, td { text-align:left; padding:.55rem .65rem; vertical-align:top; }
 th { color:var(--dim); font-size:.65rem; text-transform:uppercase; letter-spacing:2px;
      font-weight:normal; border-bottom:2px solid var(--ink); }
 td { border-bottom:1px solid var(--line-soft); }
-tr:hover td { background:rgba(214,230,245,.04); }
+tr:hover td { background:var(--hover); }
 .type { color:var(--dim); font-size:.72rem; text-transform:uppercase; letter-spacing:1px; }
 footer { margin-top:3rem; border:1px solid var(--ink); display:flex; flex-wrap:wrap;
          font-size:.78rem; }

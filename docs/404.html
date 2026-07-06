@@ -3,6 +3,7 @@
 <meta name="description" content="boots and bits — AI, architecture, construction, robotics, space, for people who build real things">
 <title>Sheet not found — Masterbuilder Field Manual</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230e2740'/%3E%3Crect x='1.5' y='1.5' width='13' height='13' fill='none' stroke='%23dae7f3'/%3E%3Crect x='4' y='6.5' width='8' height='3.5' fill='%23ff6b4a'/%3E%3C/svg%3E">
+<script>document.documentElement.dataset.theme=localStorage.getItem('mb-theme')||'dark';</script>
 <link rel="stylesheet" href="https://realworldbuilder.github.io/mb2/style.css"></head><body>
 <div class="sheet">
 <header class="site">
@@ -18,7 +19,8 @@
   </div>
 </header>
 <nav class="plan"><a href="https://realworldbuilder.github.io/mb2/index.html">field manual</a>
-     <a href="https://realworldbuilder.github.io/mb2/directory/index.html">directory</a></nav>
+     <a href="https://realworldbuilder.github.io/mb2/directory/index.html">directory</a>
+     <button id="mode" type="button">light mode</button></nav>
 <article><div class='stamp'>void<span>superseded</span></div><h1>Sheet not found</h1><p class='meta'>RFI-001 · response required</p><p>This detail was never drawn — or it got superseded in the last revision. Head back to <a href='https://realworldbuilder.github.io/mb2/index.html'>the field manual</a> and work from the current set.</p></article>
 <footer>
   <div><span class="lbl">drawn by</span>the bot</div>
@@ -26,4 +28,16 @@
   <div><span class="lbl">note</span>every claim links its source</div>
 </footer>
 </div>
+<script>
+(function () {
+  var b = document.getElementById('mode'), h = document.documentElement;
+  function label() { b.textContent = h.dataset.theme === 'light' ? 'dark mode' : 'light mode'; }
+  b.onclick = function () {
+    h.dataset.theme = h.dataset.theme === 'light' ? 'dark' : 'light';
+    localStorage.setItem('mb-theme', h.dataset.theme);
+    label();
+  };
+  label();
+})();
+</script>
 </body></html>
