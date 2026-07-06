@@ -9,8 +9,10 @@ Two engines:
     research items. Used when no provider is configured or the call
     fails, so the pipeline (and the smoke test) always completes.
 
-Every draft is Markdown + YAML frontmatter, saved to drafts/YYYY-MM-DD/,
-with source links at the bottom of the body.
+Every draft is Markdown + YAML frontmatter, saved to drafts/YYYY-MM-DD/.
+Source links live in the frontmatter; X-bound drafts keep them OUT of the
+body (the X publisher posts them as a reply), while essays and content
+ideas keep a sources footer in the body.
 """
 
 from datetime import datetime
@@ -22,15 +24,17 @@ from masterbuilder_bot.models import DRAFT_PLAN, DraftMeta, ResearchItem
 
 TYPE_INSTRUCTIONS = {
     "x_post": (
-        "one short X post, under 260 characters. Lead with the most cracked "
-        "concrete detail from the research (a number, a failure, a wild spec) "
-        "— then one takeaway for people who build real things"
+        "one short X post, under 260 characters, giving YOUR TAKE on the one "
+        "story provided — commentary, not a recap. Lead with the most cracked "
+        "concrete detail (a number, a failure, a wild spec), then say what it "
+        "means for people who build real things. Stick to that single story"
     ),
     "x_thread": (
-        "one X thread of 4-6 numbered tweets telling ONE story from the "
-        "research like a jobsite war story: hook with the wildest fact, walk "
+        "one X thread of 4-6 numbered tweets telling the ONE story provided "
+        "like a jobsite war story: hook with the wildest fact, walk "
         "the build/failure/fix, end with what a hands-dirty builder should "
-        "steal from it. Each tweet under 260 characters"
+        "steal from it. Every tweet is about that same story — never pad the "
+        "thread with other topics. Each tweet under 260 characters"
     ),
     "essay": (
         "one Masterbuilder Field Manual essay draft, 400-700 words, markdown "
@@ -139,6 +143,8 @@ def _llm_draft(dtype: str, items: list[ResearchItem], brand: dict) -> str | None
     user = (
         f"Today's research items:\n{research_block}\n\n"
         f"Write {TYPE_INSTRUCTIONS[dtype]}.\n"
+        "Do not include any URLs in the content — the source link is posted "
+        "separately.\n"
         "Return ONLY the content itself, no preamble, no meta-commentary."
     )
     return llm.complete(system, user, max_tokens=1500)
@@ -228,13 +234,20 @@ def generate_drafts(day: str | None = None) -> tuple[list[Path], str]:
 
     for dtype, count in DRAFT_PLAN:
         for n in range(count):
-            picked = _pick_items(items, k=3, offset=index)
+            # builder_signal is a multi-item roundup; everything else gets
+            # exactly ONE story so drafts stay coherent (offset rotation
+            # still gives each draft a different story).
+            picked = _pick_items(items, k=3 if dtype == "builder_signal" else 1,
+                                 offset=index)
             body = _llm_draft(dtype, picked, brand)
             if body:
                 engine_used = f"llm:{provider}"
             else:
                 body = _template_draft(dtype, picked)
-            body += _sources_footer(picked)
+            if dtype in ("essay", "content_idea"):
+                # X-bound types carry sources in frontmatter only — the X
+                # publisher posts the links as a reply tweet.
+                body += _sources_footer(picked)
 
             title = f"{TYPE_TITLES[dtype]} {n + 1} — {day}"
             meta = DraftMeta(

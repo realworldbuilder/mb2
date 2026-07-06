@@ -7,7 +7,8 @@ Free tier limits (2026): ~500 tweet writes/month, ~100 reads/month.
 Our cadence caps (5 posts/day max) stay comfortably inside that.
 
 publish() handles both single posts and threads: a body whose paragraphs
-start with "1/", "2/" ... is posted as a reply chain.
+start with "1/", "2/" ... is posted as a reply chain. Source links are
+never part of the main post — they go in a final reply tweet.
 """
 
 import os
@@ -106,6 +107,30 @@ def _clip(tweet: str) -> str:
     return cut.strip() + "…"
 
 
+def _strip_sources_footer(text: str) -> str:
+    """Drop a trailing '---\nSources:' footer (older drafts embedded links
+    in the body; links now go in the sources reply instead)."""
+    return re.split(r"\n\s*---\s*\nSources:", text)[0].strip()
+
+
+def _sources_tweets(sources: list) -> list[str]:
+    """Format source links as reply tweet(s), chunked to fit 280 chars."""
+    urls = [str(u).strip() for u in sources if str(u).strip()]
+    if not urls:
+        return []
+    label = "Source:" if len(urls) == 1 else "Sources:"
+    tweets, current = [], label
+    for u in urls:
+        candidate = f"{current}\n{u}"
+        if len(candidate) <= TWEET_LIMIT:
+            current = candidate
+        else:
+            tweets.append(current)
+            current = u
+    tweets.append(current)
+    return tweets
+
+
 def _post_one(text: str, reply_to: str | None = None) -> dict:
     payload: dict = {"text": text}
     if reply_to:
@@ -117,24 +142,28 @@ def _post_one(text: str, reply_to: str | None = None) -> dict:
 
 
 def publish(text: str, title: str = "", sources: list | None = None) -> dict:
-    """Post a single tweet or a thread. Returns {ok, id, url, detail}.
+    """Post a single tweet or a thread, then the source links as a final
+    reply tweet. Returns {ok, id, url, detail}.
 
     The id/url returned is the FIRST tweet (the one metrics track).
     """
     if not is_configured():
         return {"ok": False, "id": "", "url": "",
                 "detail": f"X not configured (missing: {', '.join(missing_keys())})"}
-    tweets = split_thread(text)
+    tweets = split_thread(_strip_sources_footer(text))
+    source_tweets = _sources_tweets(sources or [])
     try:
         first = _post_one(tweets[0])
         prev_id = first["id"]
-        for t in tweets[1:]:
+        for t in tweets[1:] + source_tweets:
             prev_id = _post_one(t, reply_to=prev_id)["id"]
         handle = os.environ.get("X_HANDLE", "").strip().lstrip("@") or "i"
         url = f"https://x.com/{handle}/status/{first['id']}"
-        log("posting", f"posted to X: {len(tweets)} tweet(s), id {first['id']}")
-        return {"ok": True, "id": first["id"], "url": url,
-                "detail": f"posted {len(tweets)} tweet(s)"}
+        detail = f"posted {len(tweets)} tweet(s)"
+        if source_tweets:
+            detail += " + sources reply"
+        log("posting", f"posted to X: {detail}, id {first['id']}")
+        return {"ok": True, "id": first["id"], "url": url, "detail": detail}
     except Exception as e:  # noqa: BLE001
         log_error(f"[posting] X publish failed: {e}")
         return {"ok": False, "id": "", "url": "", "detail": str(e)}
