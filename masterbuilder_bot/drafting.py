@@ -1,5 +1,12 @@
 """Turn a day's research into draft content.
 
+Story selection happens FIRST, in masterbuilder_bot/triage.py: every item
+gets a builder-interest score, near-duplicates collapse, and the top
+stories get their full article text fetched. Drafting then assigns
+stories by rank — the reading list curates the day's best five, each solo
+X post takes one of the top stories, and the essay/content idea go deep
+on the single best one.
+
 Two engines:
   * LLM — via masterbuilder_bot.llm, which supports Anthropic (Claude),
     OpenAI, and any OpenAI-compatible endpoint (Ollama/LM Studio on the
@@ -18,7 +25,7 @@ ideas keep a sources footer in the body.
 from datetime import datetime
 from pathlib import Path
 
-from masterbuilder_bot import config, learning, llm, storage
+from masterbuilder_bot import config, learning, llm, storage, triage
 from masterbuilder_bot.logging_utils import log
 from masterbuilder_bot.models import DRAFT_PLAN, DraftMeta, ResearchItem
 
@@ -43,14 +50,15 @@ TYPE_INSTRUCTIONS = {
     ),
     "essay": (
         "one Masterbuilder Field Manual essay draft, 400-700 words, markdown "
-        "headers allowed. Pick the single most interesting story in the "
-        "research and go deep: the constraint, the numbers, what broke, what "
-        "it means for people who build. Field-first, no press-release tone"
+        "headers allowed. The research below is today's TOP story — go deep "
+        "on it using the source material: the constraint, the numbers, what "
+        "broke, what it means for people who build. Field-first, no "
+        "press-release tone"
     ),
     "content_idea": (
-        "one meme / sticker / visual content idea rooted in today's most "
-        "cracked story: describe the image, the caption, and why builders "
-        "would share it"
+        "one meme / sticker / visual content idea rooted in the story "
+        "provided (today's most cracked story): describe the image, the "
+        "caption, and why builders would share it"
     ),
 }
 
@@ -78,35 +86,52 @@ def _sources_footer(items: list[ResearchItem]) -> str:
     return "\n\n---\nSources:\n" + "\n".join(lines)
 
 
-PHYSICAL_TAGS = {"construction", "robotics", "space", "architecture", "design",
-                 "hands-on", "hardware", "civil", "nasa", "deep-dive"}
+def _assign_items(ranked: list[ResearchItem], dtype: str, n: int) -> list[ResearchItem]:
+    """Which stories does draft #n of this type get? `ranked` is triage
+    output, best story first.
 
-
-def _pick_items(items: list[ResearchItem], k: int, offset: int) -> list[ResearchItem]:
-    """Spread research across drafts: your review marks come first (useful >
-    maybe > unreviewed), then physical-world stories beat pure-software ones.
-    Rotate by offset so drafts don't all cite the same link."""
-    ranked = sorted(
-        items,
-        key=lambda i: (
-            {"useful": 0, "maybe": 1, "unreviewed": 2}.get(i.status, 3),
-            0 if set(i.tags) & PHYSICAL_TAGS else 1,  # dirt beats software
-        ),
-    )
-    ranked = [i for i in ranked if i.status != "ignore"]
+    - reading_list: the day's top 5 — it IS the judgment.
+    - x_post #n: the n-th best story, so each of the top stories gets its
+      own solo post (overlap with the reading list is fine — the list
+      curates, the post goes deep).
+    - essay / content_idea: the single best story, with its article text.
+    """
     if not ranked:
         return []
-    picked = [ranked[(offset + j) % len(ranked)] for j in range(min(k, len(ranked)))]
-    return list({i.url: i for i in picked}.values())  # dedup, keep order
+    if dtype == "reading_list":
+        return ranked[:5]
+    if dtype == "x_post":
+        return [ranked[n % len(ranked)]]
+    return [ranked[0]]
 
 
 # ---------- LLM engine (Anthropic / OpenAI / local via llm.py) ----------
 
+def _research_block(dtype: str, items: list[ResearchItem]) -> str:
+    """Give the drafter real material: title, source, triage's key fact,
+    the RSS summary, and — for single-story drafts — the fetched article
+    text, so numbers come from the source instead of the model's
+    imagination. The reading list skips article text (5 stories would
+    blow the prompt) but keeps the key facts."""
+    parts = []
+    for i in items:
+        lines = [f"- {i.title} ({i.url}) [{i.source}]"]
+        if i.angle:
+            lines.append(f"  Key fact: {i.angle}")
+        if i.summary:
+            lines.append(f"  Summary: {i.summary[:300]}")
+        if i.fulltext and dtype != "reading_list":
+            lines.append("  SOURCE MATERIAL (verbatim from the article):\n"
+                         + i.fulltext[:2500])
+        parts.append("\n".join(lines))
+    return "\n".join(parts) or (
+        "(no research items today — write something evergreen from the brand topics)"
+    )
+
+
 def _llm_draft(dtype: str, items: list[ResearchItem], brand: dict) -> str | None:
     """Return draft body text, or None if no provider / call failed."""
-    research_block = "\n".join(
-        f"- {i.title} ({i.url}) [{i.source}] — {i.summary[:200]}" for i in items
-    ) or "(no research items today — write something evergreen from the brand topics)"
+    research_block = _research_block(dtype, items)
 
     if brand.get("persona"):
         identity = (
@@ -127,7 +152,10 @@ def _llm_draft(dtype: str, items: list[ResearchItem], brand: dict) -> str | None
         "the demo and the dirt, the thing a foreman would retell at lunch. "
         "Skip anything that reads like a press release.\n\n"
         "Never invent facts. Only reference facts that appear in the provided "
-        "research items. Never pretend to be a specific human. No engagement "
+        "research items. NUMBERS RULE: every number you write (cost, span, "
+        "date, count, percentage) must appear verbatim in the research below "
+        "— if the source has no number, state the fact without one; never "
+        "estimate. Never pretend to be a specific human. No engagement "
         "farming, no politics, no hype.\n\n"
         "HOOK CRAFT — the first line has two jobs: stop the scroll, then "
         "earn the click/next line. Every word serves one of those or gets "
@@ -179,16 +207,24 @@ def _llm_draft(dtype: str, items: list[ResearchItem], brand: dict) -> str | None
 
 # ---------- template fallback engine ----------
 
+def _one_liner(item: ResearchItem) -> str:
+    """The driest factual line we can build without a model: triage's key
+    fact if we have one, else the first sentence of the summary."""
+    if item.angle:
+        return item.angle.rstrip(".") + "."
+    first = (item.summary or "").split(". ")[0].strip()
+    if len(first) < 40:  # sentence split tripped on an abbreviation ("U.S.")
+        first = (item.summary or "")[:180].strip()
+    return (first.rstrip(".") + ".") if first else ""
+
+
 def _template_draft(dtype: str, items: list[ResearchItem]) -> str:
     lead = items[0] if items else None
 
     if dtype == "x_post":
         if lead:
-            return (
-                f"Current state check: {lead.title}.\n\n"
-                f"Why it matters on site: {lead.why_it_matters_to_builders}\n\n"
-                "Signal over noise. Read it, then build the thing."
-            )
+            # dry and factual — no manufactured sign-off lines
+            return f"{lead.title.rstrip('.')}. {_one_liner(lead)}".strip()
         return (
             "No fresh signal today. Good day to walk the job, update the field "
             "manual, and fix one thing the schedule keeps hiding."
@@ -197,7 +233,7 @@ def _template_draft(dtype: str, items: list[ResearchItem]) -> str:
     if dtype == "reading_list":
         lines = [f"The reading list — {storage.today()}."]
         for item in items[:5]:
-            lines.append(f"{item.title}. {item.why_it_matters_to_builders}\n{item.url}")
+            lines.append(f"{item.title.rstrip('.')}. {_one_liner(item)}\n{item.url}")
         if len(lines) == 1:
             lines.append("Nothing worth your time today (research run came up "
                          "empty). Back tomorrow.")
@@ -240,31 +276,28 @@ def _template_draft(dtype: str, items: list[ResearchItem]) -> str:
 def generate_drafts(day: str | None = None) -> tuple[list[Path], str]:
     """Generate the full daily draft set from research/<day>.json.
 
-    Returns (paths, engine) where engine is 'openai' or 'template'.
+    Returns (paths, engine) where engine is 'llm:<provider>', 'template',
+    or 'mixed' when some drafts fell back.
     """
     day = day or storage.today()
-    items = storage.load_research(day)
+    ranked = triage.prepare(day)  # scored, deduped, best story first
     brand = load_brand()
     created_at = datetime.now().isoformat(timespec="seconds")
 
-    engine_used = "template"
+    llm_count = 0
     paths: list[Path] = []
     index = 1
 
     provider = llm.detect_provider()
-    log("drafting", f"generating drafts for {day} from {len(items)} research items "
+    log("drafting", f"generating drafts for {day} from {len(ranked)} triaged stories "
                     f"(provider: {provider or 'none — templates'})")
 
     for dtype, count in DRAFT_PLAN:
         for n in range(count):
-            # the reading list curates the day's best 5; everything else
-            # gets exactly ONE story so drafts stay coherent (offset
-            # rotation still gives each draft a different story).
-            picked = _pick_items(items, k=5 if dtype == "reading_list" else 1,
-                                 offset=index)
+            picked = _assign_items(ranked, dtype, n)
             body = _llm_draft(dtype, picked, brand)
             if body:
-                engine_used = f"llm:{provider}"
+                llm_count += 1
             else:
                 body = _template_draft(dtype, picked)
             if dtype in ("essay", "content_idea"):
@@ -279,12 +312,20 @@ def generate_drafts(day: str | None = None) -> tuple[list[Path], str]:
                 status="draft",
                 created_at=created_at,
                 sources=[i.url for i in picked],
-                risk_score=1 if picked else 2,  # unsourced evergreen = look harder
+                # drafted from the real article = safest; headline-only or
+                # unsourced evergreen deserve a harder look before approving
+                risk_score=1 if picked and picked[0].fulltext else 2,
                 usefulness_score=3,
                 originality_score=3,
             )
             paths.append(storage.save_draft(meta, body, day, index=index))
             index += 1
 
+    if llm_count == len(paths):
+        engine_used = f"llm:{provider}"
+    elif llm_count == 0:
+        engine_used = "template"
+    else:
+        engine_used = f"mixed ({llm_count}/{len(paths)} llm:{provider}, rest template)"
     log("drafting", f"saved {len(paths)} drafts to drafts/{day}/ (engine: {engine_used})")
     return paths, engine_used

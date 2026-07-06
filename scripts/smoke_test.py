@@ -115,9 +115,11 @@ def main() -> int:
         check("research runs offline", storage.research_file("2026-01-01").exists(),
               f"{len(items)} items, {len(errors)} errors")
 
+        from masterbuilder_bot.models import DRAFT_PLAN
+        expected = sum(count for _, count in DRAFT_PLAN)
         paths, engine = generate_drafts(day="2026-01-01")
-        check("drafting completes (template fallback ok)", len(paths) == 10,
-              f"{len(paths)} drafts, engine={engine}")
+        check("drafting completes (template fallback ok)", len(paths) == expected,
+              f"{len(paths)} drafts (expected {expected}), engine={engine}")
         check("nothing was posted", not storage.list_posted())
 
         from masterbuilder_bot import knowledge

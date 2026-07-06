@@ -39,14 +39,21 @@ source_filter = f2.multiselect("Filter by source", all_sources)
 shown = [i for i in items
          if (not tag_filter or set(i.tags) & set(tag_filter))
          and (not source_filter or i.source in source_filter)]
-st.caption(f"{len(shown)} of {len(items)} items")
+# triage order: best story first (your marks beat the score, exactly as
+# drafting sees it). Unscored days (old JSONs) just sort by status.
+shown.sort(key=lambda i: ({"useful": 0, "maybe": 1}.get(i.status, 2),
+                          -i.interest_score))
+st.caption(f"{len(shown)} of {len(items)} items — sorted the way drafting picks "
+           "them: your marks first, then the builder-interest score (0-10, set "
+           "by triage on each draft run).")
 
 # ---- editable table ----------------------------------------------------------
 df = pd.DataFrame([{
+    "score": (i.interest_score if i.interest_score >= 0 else None),
     "title": i.title,
+    "key fact": i.angle or i.why_it_matters_to_builders,
     "source": i.source,
     "tags": ", ".join(i.tags),
-    "why_it_matters_to_builders": i.why_it_matters_to_builders,
     "url": i.url,
     "status": i.status,
 } for i in shown])
@@ -55,7 +62,7 @@ edited = st.data_editor(
     df,
     use_container_width=True,
     hide_index=True,
-    disabled=["title", "source", "tags", "why_it_matters_to_builders", "url"],
+    disabled=["score", "title", "key fact", "source", "tags", "url"],
     column_config={
         "status": st.column_config.SelectboxColumn(
             "status", options=list(RESEARCH_STATUSES),

@@ -29,6 +29,10 @@ class ResearchItem(BaseModel):
     tags: List[str] = Field(default_factory=list)
     why_it_matters_to_builders: str = ""
     status: str = "unreviewed"
+    # Filled by triage (masterbuilder_bot/triage.py); -1 = not scored yet.
+    interest_score: int = -1  # 0-10 "would a builder care" score
+    angle: str = ""  # the single most concrete fact, per triage
+    fulltext: str = ""  # fetched article text (top stories only)
 
 
 class DraftMeta(BaseModel):
