@@ -24,10 +24,12 @@ PLATFORMS = {
 # as a thread instead. Re-enable by mapping a type back to "linkedin".
 PLATFORM_FOR_TYPE = {
     "x_post": "x",
-    "x_thread": "x",
+    "reading_list": "x",
     "essay": "substack",
-    "builder_signal": "x",
     "content_idea": None,
+    # legacy types (no longer generated, may exist in approved/):
+    "x_thread": "x",
+    "builder_signal": "x",
 }
 
 PLATFORM_LABELS = {

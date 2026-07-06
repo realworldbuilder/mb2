@@ -24,21 +24,22 @@ from masterbuilder_bot.models import DRAFT_PLAN, DraftMeta, ResearchItem
 
 TYPE_INSTRUCTIONS = {
     "x_post": (
-        "one short X post, under 260 characters, taking a POSITION on the one "
-        "story provided — an opinion with a spine, not a recap. First eight "
-        "words: the most cracked concrete detail (a number, a failure, a wild "
-        "spec). Then the part that's a take: what it means for people who "
-        "build real things, what everyone's missing, or what you'd do "
-        "differently. Stick to that single story"
+        "one short X post, under 260 characters, reporting WHAT HAPPENED in "
+        "the one story provided — the concrete facts a builder needs: the "
+        "number, the spec, the failure, the cost, the date. First eight "
+        "words carry the most concrete detail. Plain language, no "
+        "manufactured opinion, no 'here's my take'. If the facts contain a "
+        "gap or a catch, you may name it in one dry sentence — only if it's "
+        "in the research, never invented. Stick to that single story"
     ),
-    "x_thread": (
-        "one X thread of 4-6 numbered tweets telling the ONE story provided "
-        "like a jobsite war story. Tweet 1 is the hook: the wildest fact plus "
-        "the outcome, withholding HOW it happened so the reader has to open "
-        "the thread. Then walk the build/failure/fix, and end with what a "
-        "hands-dirty builder should steal from it. Every tweet is about that "
-        "same story — never pad the thread with other topics. Each tweet "
-        "under 260 characters"
+    "reading_list": (
+        "today's Masterbuilder Reading List as an X thread. Tweet 1: "
+        "announce it plainly — 'The reading list — <today's date>' plus a "
+        "one-line note on the strongest story. Then ONE tweet per research "
+        "item: what happened in one concrete factual sentence, why a builder "
+        "might care in a second short sentence, then the item's URL on its "
+        "own line. Each tweet under 260 characters including the URL. No "
+        "opinions, no ranking commentary — the picks ARE the judgment"
     ),
     "essay": (
         "one Masterbuilder Field Manual essay draft, 400-700 words, markdown "
@@ -51,20 +52,13 @@ TYPE_INSTRUCTIONS = {
         "cracked story: describe the image, the caption, and why builders "
         "would share it"
     ),
-    "builder_signal": (
-        "one daily 'builder signal' note: 3-5 bullets, each pairing one "
-        "research item with the concrete so-what for builders, plus one "
-        "'watch this' item. Rank by how cracked the story is, not how big "
-        "the company is"
-    ),
 }
 
 TYPE_TITLES = {
     "x_post": "X post",
-    "x_thread": "X thread",
+    "reading_list": "Reading list",
     "essay": "Field Manual essay",
     "content_idea": "Content idea",
-    "builder_signal": "Builder signal",
 }
 
 
@@ -138,16 +132,13 @@ def _llm_draft(dtype: str, items: list[ResearchItem], brand: dict) -> str | None
         "HOOK CRAFT — the first line has two jobs: stop the scroll, then "
         "earn the click/next line. Every word serves one of those or gets "
         "cut.\n"
-        "- Open with ONE of: a strong declarative claim, a wild specific "
-        "number, a moment in time ('In 2022, a crew...'), or the quiet "
-        "opinion pros think but won't say out loud. NEVER open with a "
-        "question, 'Did you know', or a colon-formula headline.\n"
+        "- Open with ONE of: the fact itself stated plainly, a wild specific "
+        "number, or a moment in time ('In 2022, a crew...'). NEVER open with "
+        "a question, 'Did you know', or a colon-formula headline.\n"
         "- Clear beats clever. Concrete beats catchy.\n"
-        "- Twist the knife: name the cost or pain (dollars, days, rework, "
-        "risk) before the payoff.\n"
-        "- A take is a position. Commit to what the story MEANS — what it "
-        "changes on a jobsite, what everyone's missing, or where it will "
-        "break. A neutral summary is a failed draft.\n\n"
+        "- Report, don't opine. Say what happened with the real numbers and "
+        "let the reader form the opinion — curation and concreteness ARE "
+        "the value. Manufactured takes read as AI; facts don't.\n\n"
         f"BRAND VOICE:\n{brand['voice']}\n\n"
         f"BRAND RULES:\n{brand['rules']}\n\n"
         f"BRAND TOPICS:\n{brand['topics']}"
@@ -158,10 +149,9 @@ def _llm_draft(dtype: str, items: list[ResearchItem], brand: dict) -> str | None
     # posts that already earned approval/likes.
     ledger = learning.load_ledger()
     if ledger:
-        system += ("\n\nYOUR TRACK RECORD — positions you have already "
-                   "published. Never contradict them; when today's story "
-                   "touches one, say so and push the take further. This is "
-                   "how the character compounds:\n" + ledger)
+        system += ("\n\nALREADY COVERED — stories you've already published. "
+                   "Don't repeat them unless today's research adds something "
+                   "genuinely new (and then say what's new):\n" + ledger)
     lessons = learning.load_lessons()
     if lessons:
         system += ("\n\nVOICE LESSONS (learned from what got approved, rejected, "
@@ -172,11 +162,16 @@ def _llm_draft(dtype: str, items: list[ResearchItem], brand: dict) -> str | None
         shots = "\n\n".join(f"[{e['why']}]\n{e['text']}" for e in exemplars)
         system += ("\n\nEXEMPLARS — real posts that worked. Match their energy "
                    "and concreteness, don't copy their content:\n" + shots)
+    url_rule = (
+        "Include each item's URL exactly as given in the research.\n"
+        if dtype == "reading_list" else
+        "Do not include any URLs in the content — the source link is posted "
+        "separately.\n"
+    )
     user = (
         f"Today's research items:\n{research_block}\n\n"
         f"Write {TYPE_INSTRUCTIONS[dtype]}.\n"
-        "Do not include any URLs in the content — the source link is posted "
-        "separately.\n"
+        + url_rule +
         "Return ONLY the content itself, no preamble, no meta-commentary."
     )
     return llm.complete(system, user, max_tokens=1500)
@@ -199,11 +194,13 @@ def _template_draft(dtype: str, items: list[ResearchItem]) -> str:
             "manual, and fix one thing the schedule keeps hiding."
         )
 
-    if dtype == "x_thread":
-        lines = ["1/ What builders should actually read today — boots and bits:"]
-        for n, item in enumerate(items[:4], start=2):
-            lines.append(f"{n}/ {item.title} — {item.why_it_matters_to_builders}")
-        lines.append(f"{len(lines) + 1}/ Takeaway: pick ONE of these, test it on a real job, report back. Field manual grows one page at a time.")
+    if dtype == "reading_list":
+        lines = [f"The reading list — {storage.today()}."]
+        for item in items[:5]:
+            lines.append(f"{item.title}. {item.why_it_matters_to_builders}\n{item.url}")
+        if len(lines) == 1:
+            lines.append("Nothing worth your time today (research run came up "
+                         "empty). Back tomorrow.")
         return "\n\n".join(lines)
 
     if dtype == "essay":
@@ -232,16 +229,10 @@ def _template_draft(dtype: str, items: list[ResearchItem]) -> str:
             "- Why builders share it: it names the gap they live in every day."
         )
 
-    # builder_signal
-    bullets = [f"- {i.title}: {i.why_it_matters_to_builders}" for i in items[:5]]
-    if not bullets:
-        bullets = ["- No research pulled today (offline or all sources failed). Check the Logs page."]
-    watch = items[0].title if items else "tomorrow's research run"
-    return (
-        "Builder signal — daily note:\n\n"
-        + "\n".join(bullets)
-        + f"\n\nWatch this: {watch}"
-    )
+    # unknown/legacy type — plain factual note on the lead story
+    if lead:
+        return f"{lead.title}. {lead.why_it_matters_to_builders}"
+    return "No research pulled today (offline or all sources failed). Check the Logs page."
 
 
 # ---------- main entry ----------
@@ -266,10 +257,10 @@ def generate_drafts(day: str | None = None) -> tuple[list[Path], str]:
 
     for dtype, count in DRAFT_PLAN:
         for n in range(count):
-            # builder_signal is a multi-item roundup; everything else gets
-            # exactly ONE story so drafts stay coherent (offset rotation
-            # still gives each draft a different story).
-            picked = _pick_items(items, k=3 if dtype == "builder_signal" else 1,
+            # the reading list curates the day's best 5; everything else
+            # gets exactly ONE story so drafts stay coherent (offset
+            # rotation still gives each draft a different story).
+            picked = _pick_items(items, k=5 if dtype == "reading_list" else 1,
                                  offset=index)
             body = _llm_draft(dtype, picked, brand)
             if body:

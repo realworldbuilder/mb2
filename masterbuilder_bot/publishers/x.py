@@ -150,8 +150,11 @@ def publish(text: str, title: str = "", sources: list | None = None) -> dict:
     if not is_configured():
         return {"ok": False, "id": "", "url": "",
                 "detail": f"X not configured (missing: {', '.join(missing_keys())})"}
-    tweets = split_thread(_strip_sources_footer(text))
-    source_tweets = _sources_tweets(sources or [])
+    body = _strip_sources_footer(text)
+    tweets = split_thread(body)
+    # reading lists carry their links inline — only reply with links the
+    # body doesn't already contain
+    source_tweets = _sources_tweets([u for u in (sources or []) if str(u) not in body])
     try:
         first = _post_one(tweets[0])
         prev_id = first["id"]

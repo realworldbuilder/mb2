@@ -10,11 +10,9 @@ Signals, strongest first:
 Outputs, both read by drafting.py on every run:
   * memory/voice_lessons.md — a short do/don't list, so the voice
     tightens a little every time William reviews or the audience reacts.
-  * memory/take_ledger.md — the positions the Master Builder has already
-    published, distilled from approved/posted content. This is the
-    character's memory of its own opinions: new drafts stay consistent
-    with old takes and build on them, which is what makes the account
-    read like a personality instead of a news feed.
+  * memory/take_ledger.md — one line per story already published,
+    distilled from approved/posted content, so the drafter doesn't
+    re-cover the same story two days running.
 
 If an LLM is available it distills the raw signals into crisp rules;
 otherwise the raw digest itself is the lessons file (still useful).
@@ -52,12 +50,9 @@ def load_ledger() -> str:
 
 
 def rebuild_ledger() -> str:
-    """Regenerate memory/take_ledger.md from approved/posted content.
-
-    Extracts the one-line POSITIONS (not summaries) the Master Builder
-    has committed to in public, newest first, so the drafter can stay
-    consistent and push old takes further when a new story connects.
-    """
+    """Regenerate memory/take_ledger.md from approved/posted content:
+    one line per story already covered, newest first, so the drafter
+    can avoid repeating itself."""
     bodies = []
     for path in storage.list_posted() + storage.list_approved():
         if len(bodies) >= 20:
@@ -73,12 +68,11 @@ def rebuild_ledger() -> str:
 
     distilled = llm.complete(
         system=(
-            "These are published posts by 'The Master Builder' "
-            "(masterbuilder.ai). Extract the OPINIONS he has publicly "
-            "committed to — the stance, not the news. At most 12 bullets, "
-            "one line each, newest first, strongest first within a day. "
-            "Skip posts that took no position. Plain markdown bullets, "
-            "no preamble."
+            "These are published posts by masterbuilder.ai. For each, give "
+            "ONE line stating the story it covered (subject + the key fact/"
+            "number). At most 12 bullets, newest first, no duplicates, no "
+            "commentary. Plain markdown bullets, no preamble. This list is "
+            "used to avoid re-covering the same stories."
         ),
         user="\n\n---\n\n".join(bodies),
         max_tokens=600,

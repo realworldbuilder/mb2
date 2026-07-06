@@ -8,12 +8,13 @@ from pydantic import BaseModel, Field
 RESEARCH_STATUSES = ("unreviewed", "useful", "maybe", "ignore")
 
 # Draft types generated each day, and how many of each.
+# Direction (2026-07-05): report what's happening + curate — no
+# manufactured takes. The daily reading list is the flagship.
 DRAFT_PLAN = [
-    ("x_post", 5),
-    ("x_thread", 2),
+    ("x_post", 4),
+    ("reading_list", 1),
     ("essay", 1),
     ("content_idea", 1),
-    ("builder_signal", 1),
 ]
 
 DRAFT_TYPES = [t for t, _ in DRAFT_PLAN]

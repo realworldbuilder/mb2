@@ -64,10 +64,10 @@ st.markdown(f"""
 2. **Draft** — the writing engine (currently **{llm["provider"]}**, model
    `{llm["model"]}` running on this Mac mini) reads the research plus your
    brand files and writes **{draft_count} drafts**: {", ".join(f"{n} {t}" for t, n in DRAFT_PLAN)}.
-   Every draft carries YAML frontmatter (scores + sources). X-bound drafts
-   are built from ONE story each and keep links out of the body — the X
-   publisher posts the source link as a reply tweet. If the model is
-   unreachable, deterministic template drafts keep the pipeline alive.
+   Every draft carries YAML frontmatter (scores + sources). X posts report
+   ONE story each, facts only, links posted as a reply tweet; the daily
+   reading list curates the 5 best stories with links inline. If the model
+   is unreachable, deterministic template drafts keep the pipeline alive.
    Physical-world stories outrank pure-software ones.
 
 3. **Review** — that's you, on the **Drafts** page (or `scripts/review_queue.py`
