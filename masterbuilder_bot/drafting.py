@@ -69,9 +69,9 @@ TYPE_TITLES = {
 
 
 def load_brand() -> dict[str, str]:
-    """Read brand/voice.md, rules.md, topics.md into a dict."""
+    """Read brand/persona.md, voice.md, rules.md, topics.md into a dict."""
     out = {}
-    for name in ("voice", "rules", "topics"):
+    for name in ("persona", "voice", "rules", "topics"):
         path = config.BRAND_DIR / f"{name}.md"
         out[name] = path.read_text(encoding="utf-8") if path.exists() else ""
     return out
@@ -114,12 +114,20 @@ def _llm_draft(dtype: str, items: list[ResearchItem], brand: dict) -> str | None
         f"- {i.title} ({i.url}) [{i.source}] — {i.summary[:200]}" for i in items
     ) or "(no research items today — write something evergreen from the brand topics)"
 
-    system = (
-        "You write draft content for the brand masterbuilder.ai.\n"
-        "You sound like a builder who learned AI, not an AI pretending to "
-        "know construction. Your beat is broad — AI in general, architecture, "
-        "construction, robotics, space — but the lens is always the same: "
-        "people who get their hands dirty building real things.\n\n"
+    if brand.get("persona"):
+        identity = (
+            "You are THE MASTER BUILDER — the voice of masterbuilder.ai. "
+            "Stay in character:\n\n" + brand["persona"].strip() + "\n\n"
+        )
+    else:
+        identity = (
+            "You write draft content for the brand masterbuilder.ai.\n"
+            "You sound like a builder who learned AI, not an AI pretending to "
+            "know construction. Your beat is broad — AI in general, architecture, "
+            "construction, robotics, space — but the lens is always the same: "
+            "people who get their hands dirty building real things.\n\n"
+        )
+    system = identity + (
         "Hunt for the CRACKED story: the wild-but-true detail, the concrete "
         "number (span, load, tolerance, cost, days saved), the gap between "
         "the demo and the dirt, the thing a foreman would retell at lunch. "
@@ -145,8 +153,15 @@ def _llm_draft(dtype: str, items: list[ResearchItem], brand: dict) -> str | None
         f"BRAND TOPICS:\n{brand['topics']}"
     )
 
-    # Learning loop: lessons distilled from William's reviews + real
-    # engagement, and exemplar posts that already earned approval/likes.
+    # Learning loop: the character's own published positions, lessons
+    # distilled from William's reviews + real engagement, and exemplar
+    # posts that already earned approval/likes.
+    ledger = learning.load_ledger()
+    if ledger:
+        system += ("\n\nYOUR TRACK RECORD — positions you have already "
+                   "published. Never contradict them; when today's story "
+                   "touches one, say so and push the take further. This is "
+                   "how the character compounds:\n" + ledger)
     lessons = learning.load_lessons()
     if lessons:
         system += ("\n\nVOICE LESSONS (learned from what got approved, rejected, "

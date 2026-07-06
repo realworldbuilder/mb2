@@ -22,6 +22,7 @@ mode_banner()
 
 # ---- editable files -----------------------------------------------------------
 EDITABLE = {
+    "brand/persona.md": config.BRAND_DIR / "persona.md",
     "brand/voice.md": config.BRAND_DIR / "voice.md",
     "brand/topics.md": config.BRAND_DIR / "topics.md",
     "brand/rules.md": config.BRAND_DIR / "rules.md",
