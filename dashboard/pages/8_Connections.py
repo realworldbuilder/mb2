@@ -14,7 +14,7 @@ from _shared import mode_banner  # noqa: E402
 
 import streamlit as st  # noqa: E402
 
-from masterbuilder_bot import config, publishers  # noqa: E402
+from masterbuilder_bot import config, llm, publishers  # noqa: E402
 
 st.set_page_config(page_title="Connections — Masterbuilder", page_icon="🔌", layout="wide")
 st.title("🔌 Connections")
@@ -51,6 +51,54 @@ def test_button(platform: str) -> None:
             result = publishers.get(platform).test()
         (st.success if result["ok"] else st.error)(result["detail"])
 
+
+# ==================== Writing engine (Claude) ======================
+_llm = llm.llm_status()
+_on_claude = _llm["provider"] == "anthropic"
+st.header(("✅ " if _on_claude else "🧠 ") + "Writing engine — Claude")
+st.caption(f"Currently writing with: **{_llm['provider']} / {_llm['model']}**. "
+           "This is the brain behind every draft — the single biggest "
+           "quality upgrade is switching it from the local model to Claude.")
+with st.expander("How to get an Anthropic API key (~3 minutes)",
+                 expanded=not _on_claude):
+    st.markdown("""
+1. Go to **[console.anthropic.com](https://console.anthropic.com)** → sign in (create an account if needed).
+2. **Settings → Billing** → add a card and a few dollars of credit — a full day of drafts costs pennies.
+3. **Settings → API keys** → **Create key** → copy it (starts with `sk-ant-`).
+4. Paste it below and hit **Save & switch to Claude**. Done — same persona, same rules, much better writer.
+""")
+_cols = st.columns([3, 1])
+_key = _cols[0].text_input(
+    f"Anthropic API key {'✅' if os.environ.get('ANTHROPIC_API_KEY', '').strip() else '❌'}",
+    type="password", key="in-ANTHROPIC_API_KEY",
+    placeholder="(already set — paste to replace)"
+    if os.environ.get("ANTHROPIC_API_KEY", "").strip() else "sk-ant-...",
+)
+if _cols[1].button("Save & switch to Claude", key="save-anthropic",
+                   use_container_width=True):
+    if _key.strip():
+        config.set_env_key("ANTHROPIC_API_KEY", _key.strip())
+        config.set_env_key("LLM_PROVIDER", "anthropic")
+        config.set_env_key("LLM_MODEL", "claude-sonnet-5")
+        st.success("Saved — drafts now write with Claude (claude-sonnet-5).")
+        st.rerun()
+    else:
+        st.warning("Nothing to save — the field is empty.")
+_tc1, _tc2 = st.columns(2)
+if _tc1.button("🧪 Test writing engine", key="test-llm"):
+    with st.spinner("Asking the model for one sentence..."):
+        out = llm.complete("You are the masterbuilder.ai drafting engine.",
+                           "Reply with one short sentence proving you're alive.",
+                           max_tokens=60)
+    (st.success if out else st.error)(
+        out or "No reply — check the key/provider (Logs page has details).")
+if _on_claude and _tc2.button("↩️ Switch back to local model (free)", key="llm-local"):
+    config.set_env_key("LLM_PROVIDER", "openai_compatible")
+    config.set_env_key("LLM_MODEL", "qwen2.5:14b")
+    st.success("Back on the local model (qwen2.5:14b via Ollama).")
+    st.rerun()
+
+st.divider()
 
 # ============================ X ====================================
 st.header(("✅ " if status["x"]["configured"] else "❌ ") + "X (Twitter)")
