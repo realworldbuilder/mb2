@@ -55,17 +55,27 @@ def llm_status() -> dict:
 
 
 def complete(system: str, user: str, max_tokens: int = 1500) -> str | None:
-    """One-shot completion. Returns the text, or None on any failure."""
+    """One-shot completion. Returns the text, or None on any failure.
+
+    Retries once — transient API hiccups and empty responses were silently
+    dropping drafts to the template engine.
+    """
     provider = detect_provider()
     if provider is None:
         return None
-    try:
-        if provider == "anthropic":
-            return _anthropic(system, user, max_tokens)
-        return _openai_style(provider, system, user, max_tokens)
-    except Exception as e:  # noqa: BLE001 — every LLM failure -> template fallback
-        log_error(f"[llm] {provider} call failed: {type(e).__name__}: {e}")
-        return None
+    for attempt in (1, 2):
+        try:
+            if provider == "anthropic":
+                out = _anthropic(system, user, max_tokens)
+            else:
+                out = _openai_style(provider, system, user, max_tokens)
+            if out:
+                return out
+            log_error(f"[llm] {provider} returned empty text (attempt {attempt}/2)")
+        except Exception as e:  # noqa: BLE001 — LLM failure -> retry, then template
+            log_error(f"[llm] {provider} call failed (attempt {attempt}/2): "
+                      f"{type(e).__name__}: {e}")
+    return None
 
 
 def _anthropic(system: str, user: str, max_tokens: int) -> str | None:
