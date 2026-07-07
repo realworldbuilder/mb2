@@ -197,6 +197,33 @@ def stat_card(stat: str, context: str, kicker: str, dest: Path) -> Path:
     return dest
 
 
+_HOOK_SRC_SYSTEM = (
+    "A post opens with a hook about one story; its research came from a "
+    "numbered list of source URLs. Reply with ONLY the number of the "
+    "source the OPENING PARAGRAPH is about — the image from that article "
+    "will sit next to the hook, so a mismatch looks broken. If unsure, "
+    "reply 1."
+)
+
+
+def _hook_source_index(body: str, sources: list[str]) -> int:
+    """Which source does the hook actually talk about? Matters for
+    multi-story drafts (reading list, Demo vs Dirt) where sources[0] is
+    just the day's top-ranked story, not necessarily the opener."""
+    if len(sources) < 2:
+        return 0
+    src_lines = "\n".join(f"{n + 1}. {u}" for n, u in enumerate(sources))
+    raw = llm.complete(
+        _HOOK_SRC_SYSTEM,
+        f"POST (opening):\n{body[:600]}\n\nSOURCES:\n{src_lines}",
+        max_tokens=10,
+    )
+    m = re.search(r"\d+", raw or "")
+    if m and 1 <= int(m.group()) <= len(sources):
+        return int(m.group()) - 1
+    return 0
+
+
 # ---------- per-draft entry point ----------
 
 def build_for_draft(path: Path) -> list[str]:
@@ -216,7 +243,8 @@ def build_for_draft(path: Path) -> list[str]:
     sources = [str(u) for u in (post.get("sources") or []) if str(u).strip()]
     if sources:
         try:
-            got = fetch_source_image(sources[0], out / f"{stem}-source.jpg")
+            hook_src = sources[_hook_source_index(post.content, sources)]
+            got = fetch_source_image(hook_src, out / f"{stem}-source.jpg")
             if got:
                 candidates.append(_rel(got))
         except Exception as e:  # noqa: BLE001
