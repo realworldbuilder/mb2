@@ -139,6 +139,15 @@ def main() -> int:
         from masterbuilder_bot import knowledge
         new, upd = knowledge.build_from_research(day="2026-01-01")
         check("knowledge build survives with no LLM", True, f"{new} new, {upd} updated")
+
+        # media: the fact card renders offline (og:image + stat extraction
+        # need the network/LLM and degrade to nothing, which is fine)
+        from masterbuilder_bot import media
+        card = media.stat_card("800 L/sec", "Seepage through Mosul Dam's "
+                               "foundation a year after filling", "Field numbers",
+                               Path(tmp) / "smoke-card.png")
+        check("fact card renders", card.is_file() and card.stat().st_size > 10_000,
+              f"{card.stat().st_size} bytes")
     except Exception as e:  # noqa: BLE001
         check("run_daily pipeline", False, f"{type(e).__name__}: {e}")
 

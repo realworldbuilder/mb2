@@ -29,6 +29,10 @@ def approve(path: Path, reason: str = "") -> Path:
     dest = storage.set_status_and_move(Path(path), "approved", config.approved_dir())
     feedback.log_event("approved", dest, dtype, title, reason, body)
     log("review", f"approved {dest.name} -> {dest.parent}")
+    # the chosen image follows the post to approved/<day>/media/;
+    # unchosen candidates are cleaned up. Never blocks.
+    from masterbuilder_bot import media
+    media.on_review_move(dest, keep=True)
     # Approval is the signal a story is worth tracking: open a continuity
     # arc so tomorrow's research can pay this story off. Never blocks.
     try:
@@ -44,6 +48,8 @@ def reject(path: Path, reason: str = "") -> Path:
     dest = storage.set_status_and_move(Path(path), "rejected", config.rejected_dir())
     feedback.log_event("rejected", dest, dtype, title, reason, body)
     log("review", f"rejected {Path(path).name} -> {dest.parent}")
+    from masterbuilder_bot import media
+    media.on_review_move(dest, keep=False)
     return dest
 
 

@@ -83,3 +83,7 @@ class DraftMeta(BaseModel):
     usefulness_score: int = 3  # 1 = fluff, 5 = a builder saves real time
     originality_score: int = 3  # 1 = everyone said this, 5 = only us
     arc_id: str = ""  # continuity: which story arc a followup/receipt serves
+    # images (masterbuilder_bot/media.py): candidate files relative to the
+    # data home; media_choice is what actually attaches to tweet 1 ("" = none)
+    media_candidates: List[str] = Field(default_factory=list)
+    media_choice: str = ""

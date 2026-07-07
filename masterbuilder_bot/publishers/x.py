@@ -19,6 +19,7 @@ import requests
 from masterbuilder_bot.logging_utils import log, log_error
 
 API = "https://api.x.com/2"
+MEDIA_UPLOAD = "https://upload.twitter.com/1.1/media/upload.json"
 REQUIRED_KEYS = ("X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_TOKEN_SECRET")
 TWEET_LIMIT = 280
 _URL_RE = re.compile(r"https?://\S+")
@@ -150,19 +151,35 @@ def _sources_tweets(sources: list) -> list[str]:
     return tweets
 
 
-def _post_one(text: str, reply_to: str | None = None) -> dict:
+def _upload_media(path: str) -> str:
+    """Upload an image via the v1.1 media endpoint (works with the same
+    OAuth1a keys) and return its media_id for attaching to a tweet."""
+    with open(path, "rb") as fh:
+        r = requests.post(MEDIA_UPLOAD, files={"media": fh},
+                          auth=_auth(), timeout=60)
+    if r.status_code not in (200, 201):
+        raise RuntimeError(f"X media upload HTTP {r.status_code}: {r.text[:300]}")
+    return r.json()["media_id_string"]
+
+
+def _post_one(text: str, reply_to: str | None = None,
+              media_id: str | None = None) -> dict:
     payload: dict = {"text": text}
     if reply_to:
         payload["reply"] = {"in_reply_to_tweet_id": reply_to}
+    if media_id:
+        payload["media"] = {"media_ids": [media_id]}
     r = requests.post(f"{API}/tweets", json=payload, auth=_auth(), timeout=30)
     if r.status_code not in (200, 201):
         raise RuntimeError(f"X API HTTP {r.status_code}: {r.text[:300]}")
     return r.json()["data"]
 
 
-def publish(text: str, title: str = "", sources: list | None = None) -> dict:
+def publish(text: str, title: str = "", sources: list | None = None,
+            media_path: str | None = None) -> dict:
     """Post a single tweet or a thread, then the source links as a final
-    reply tweet. Returns {ok, id, url, detail}.
+    reply tweet. media_path (optional image) attaches to the FIRST tweet.
+    Returns {ok, id, url, detail}.
 
     The id/url returned is the FIRST tweet (the one metrics track).
     """
@@ -174,14 +191,23 @@ def publish(text: str, title: str = "", sources: list | None = None) -> dict:
     # reading lists carry their links inline — only reply with links the
     # body doesn't already contain
     source_tweets = _sources_tweets([u for u in (sources or []) if str(u) not in body])
+    media_id = None
+    if media_path:
+        try:
+            media_id = _upload_media(media_path)
+        except Exception as e:  # noqa: BLE001
+            # a broken image never blocks the post — ship text-only
+            log_error(f"[posting] X media upload failed, posting without: {e}")
     try:
-        first = _post_one(tweets[0])
+        first = _post_one(tweets[0], media_id=media_id)
         prev_id = first["id"]
         for t in tweets[1:] + source_tweets:
             prev_id = _post_one(t, reply_to=prev_id)["id"]
         handle = os.environ.get("X_HANDLE", "").strip().lstrip("@") or "i"
         url = f"https://x.com/{handle}/status/{first['id']}"
         detail = f"posted {len(tweets)} tweet(s)"
+        if media_id:
+            detail += " + image"
         if source_tweets:
             detail += " + sources reply"
         log("posting", f"posted to X: {detail}, id {first['id']}")

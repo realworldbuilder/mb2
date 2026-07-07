@@ -25,7 +25,8 @@ ideas keep a sources footer in the body.
 from datetime import datetime
 from pathlib import Path
 
-from masterbuilder_bot import config, continuity, knowledge, learning, llm, storage, triage
+from masterbuilder_bot import (config, continuity, knowledge, learning, llm,
+                               media, storage, triage)
 from masterbuilder_bot.logging_utils import log, log_error
 from masterbuilder_bot.models import DraftMeta, ResearchItem, plan_slots
 
@@ -613,6 +614,13 @@ def generate_drafts(day: str | None = None) -> tuple[list[Path], str]:
         path = storage.save_draft(meta, body, day, index=index)
         paths.append(path)
         index += 1
+
+        # image candidates (source photo + fact card) for X-bound drafts —
+        # best-effort; a media failure just means a text-only post
+        try:
+            media.build_for_draft(path)
+        except Exception as e:  # noqa: BLE001
+            log_error(f"[drafting] media candidates failed for {path.name}: {e}")
 
         # mark the ledger so a re-run doesn't draft the same update twice
         try:

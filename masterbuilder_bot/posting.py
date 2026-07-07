@@ -31,6 +31,7 @@ def build_preview(path: Path) -> dict:
         "platform": publishers.platform_for(dtype),
         "text": post.content.strip(),
         "sources": post.get("sources", []) or [],
+        "media": post.get("media_choice", "") or "",
     }
 
 
@@ -102,8 +103,16 @@ def post_live(path: Path, platform: str | None = None) -> dict:
             "Add the keys on the Connections page."
         )
 
+    # attach the reviewed image (X only; other platforms stay text)
+    kwargs = {}
+    if platform == "x" and preview.get("media"):
+        from masterbuilder_bot import media
+        img = media.resolve(preview["media"])
+        if img.exists():
+            kwargs["media_path"] = str(img)
+
     result = pub.publish(preview["text"], title=preview["title"],
-                         sources=preview["sources"])
+                         sources=preview["sources"], **kwargs)
     if not result.get("ok"):
         # No file move on failure — retry later from approved/.
         log("posting", f"LIVE POST FAILED {path.name} -> {platform}: {result.get('detail')}")
