@@ -167,13 +167,21 @@ def auto_post_day(day: str | None = None) -> list[dict]:
         log("posting", "auto_post_day called but BOT_MODE != auto_posting — no-op")
         return results
 
-    for path in sorted(storage.list_drafts(day)):
+    # Retry pass first: approved X posts that never made it out (a prior
+    # run's publisher failure — API credits, outage — leaves them here).
+    retries = [p for p in sorted(storage.list_approved(day))
+               if pubs.platform_for(storage.load_post(p).get("type", "")) == "x"
+               and not storage.load_post(p).get("post_id")]
+    todo: list[tuple[Path, bool]] = ([(p, True) for p in retries]
+                                     + [(p, False) for p in sorted(storage.list_drafts(day))])
+
+    for path, already_approved in todo:
         post = storage.load_post(path)
         dtype = post.get("type", "")
         if pubs.platform_for(dtype) != "x":
             continue
         entry = {"file": path.name, "type": dtype}
-        if int(post.get("risk_score", 1) or 1) > AUTO_POST_MAX_RISK:
+        if not already_approved and int(post.get("risk_score", 1) or 1) > AUTO_POST_MAX_RISK:
             entry.update(posted=False, detail="risk_score too high — left for manual review")
             results.append(entry)
             continue
@@ -195,7 +203,8 @@ def auto_post_day(day: str | None = None) -> list[dict]:
             log("posting", f"auto-post stopped at {path.name}: {e}")
             break
         try:
-            approved = review.approve(path, reason="auto-posted (BOT_MODE=auto_posting)")
+            approved = (path if already_approved else
+                        review.approve(path, reason="auto-posted (BOT_MODE=auto_posting)"))
             result = post_live(approved)
             entry.update(posted=bool(result.get("posted")),
                          url=result.get("url", ""), detail=result.get("detail", ""))
