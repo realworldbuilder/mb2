@@ -31,12 +31,18 @@ from masterbuilder_bot.models import DraftMeta, ResearchItem, plan_slots
 
 TYPE_INSTRUCTIONS = {
     "x_post": (
-        "one short X post, under 260 characters, on the one story provided. "
-        "Structure: HOOK line first (per HOOK CRAFT — declarative claim, "
-        "moment in time, cold number, weird detail, or contrast), then the "
-        "knife twist — the catch, cost, or gap that makes it matter, taken "
-        "straight from the research. Plain language, no manufactured "
-        "opinion, no 'here's my take'. Stick to that single story"
+        "one standalone X story-post on the one story provided. A reader "
+        "with ZERO prior context must come away knowing what happened, the "
+        "scale of it, and why it matters — the post is the whole story, "
+        "not a teaser. 500-900 characters total, written as 3-4 SHORT "
+        "paragraphs separated by blank lines; each paragraph under 270 "
+        "characters (it becomes one tweet when threaded). Paragraph 1 is "
+        "the HOOK (per HOOK CRAFT). Middle paragraphs carry the context a "
+        "newcomer needs: the background, the concrete numbers, what "
+        "actually happened. Final paragraph twists the knife — the catch, "
+        "cost, gap, or open question, straight from the research. Plain "
+        "language, no manufactured opinion, no 'here's my take'. Stick to "
+        "that single story"
     ),
     "reading_list": (
         "today's Masterbuilder Reading List as an X thread. Tweet 1 is the "
@@ -65,23 +71,33 @@ TYPE_INSTRUCTIONS = {
     ),
     # ---- continuity types: content that strings the days together ----
     "followup": (
-        "one short X post UPDATE (under 260 characters) on a story we "
-        "covered before — see ARC CONTEXT below. Lead with what CHANGED "
-        "(the new number or milestone, hook-grade), then the callback: "
-        "'We flagged this on <date>' with the original key fact. The delta "
-        "between then and now IS the story. Facts only, numbers verbatim"
+        "one standalone X UPDATE post on a story we covered before — see "
+        "ARC CONTEXT below. 400-800 characters as 2-4 short paragraphs "
+        "(each under 270 characters — one tweet when threaded). Paragraph "
+        "1 is the hook: what CHANGED — the new number or milestone. Then "
+        "the callback with enough context to stand alone: what we flagged "
+        "on <date>, the original key fact, and the delta between then and "
+        "now — the delta IS the story. A reader who missed the original "
+        "must still get the full picture. Facts only, numbers verbatim"
     ),
     "receipt": (
-        "one short X post grading a dated claim — see ARC CONTEXT below. "
-        "Ledger style: what the source claimed, when they said it, when it "
+        "one standalone X post grading a dated claim — see ARC CONTEXT "
+        "below. 300-700 characters as 2-3 short paragraphs (each under "
+        "270 characters). Ledger style with full standalone context: the "
+        "one-line background of the original story, what the source "
+        "claimed (quoted close to verbatim), when they said it, when it "
         "was due, and what actually happened — delivered, slipped, or "
-        "'deadline passed, no word we've seen'. Quote the claim close to "
-        "verbatim. No gloating, no takes — the calendar is the judgment"
+        "'deadline passed, no word we've seen'. No gloating, no takes — "
+        "the calendar is the judgment"
     ),
     "record": (
-        "one short X post on a record falling — see RECORD CONTEXT below. "
-        "New mark first (cold number), then the previous record it beat "
-        "(holder, value, date). Two numbers colliding is the whole post"
+        "one standalone X post on a record falling — see RECORD CONTEXT "
+        "below. 300-700 characters as 2-3 short paragraphs (each under "
+        "270 characters). Paragraph 1: the new mark, cold number. Then "
+        "the previous record it beat (holder, value, date) plus enough "
+        "context that a reader who never heard of the metric understands "
+        "what was measured and why the jump matters. Two numbers "
+        "colliding is the spine of the post"
     ),
     # ---- named weekly segments ----
     "demo_vs_dirt": (
@@ -90,15 +106,19 @@ TYPE_INSTRUCTIONS = {
         "reality that grounds it: a cost, a delay, a constraint, or a "
         "second story that undercuts it. Open the hook with 'Demo vs "
         "Dirt:'. Both sides must be sourced facts from the research — "
-        "never invent the dirt. One post or a 2-3 tweet thread"
+        "never invent the dirt. 400-900 characters as 2-4 short "
+        "paragraphs (each under 270 characters — one tweet when "
+        "threaded), with enough context that both sides stand alone"
     ),
     "still_standing": (
         "this week's STILL STANDING — the Wednesday segment on things that "
         "outlive their design life: infrastructure decades past spec, "
         "machines that refuse to die, maintenance that never ends. Pick "
         "the best endurance story in today's research; the age gap is the "
-        "hook (years in service vs years designed for). One short post, "
-        "under 260 characters if it fits"
+        "hook (years in service vs years designed for). One standalone "
+        "story-post, 400-800 characters as 2-4 short paragraphs (each "
+        "under 270 characters): the age-gap hook, then the context — what "
+        "it was designed for, what it has endured, what keeps it going"
     ),
     "punch_list": (
         "THE PUNCH LIST — the Friday wrap essay (400-700 words, markdown "
@@ -124,8 +144,10 @@ TYPE_TITLES = {
     "punch_list": "The Punch List",
 }
 
-# X-bound types that must land as one tweet (get the tighten pass).
-SINGLE_TWEET_TYPES = ("x_post", "followup", "receipt", "record", "still_standing")
+# Solo X story-posts: threaded by the publisher one paragraph per tweet,
+# so every paragraph must fit a tweet and the total stays digestible.
+X_SOLO_TYPES = ("x_post", "followup", "receipt", "record",
+                "still_standing", "demo_vs_dirt")
 
 
 def load_brand() -> dict[str, str]:
@@ -248,22 +270,35 @@ def _research_block(dtype: str, items: list[ResearchItem]) -> str:
     )
 
 
-X_POST_MAX = 260  # solo posts must fit in one tweet, with headroom
+X_SOLO_MAX = 950  # total ceiling for a solo story-post (3-4 tweets)
+X_PARA_MAX = 270  # each paragraph must fit one tweet, with headroom
+
+
+def _paragraphs(body: str) -> list[str]:
+    return [p.strip() for p in body.split("\n\n") if p.strip()]
+
+
+def _fits_thread(body: str) -> bool:
+    return (len(body) <= X_SOLO_MAX
+            and all(len(p) <= X_PARA_MAX for p in _paragraphs(body)))
 
 
 def _tighten_x_post(body: str) -> str:
-    """One revision pass when a solo post runs long. If the edit fails or
-    is still long, keep the original — William can trim in review and the
-    X publisher would thread it rather than clip it."""
+    """One revision pass when a solo post breaks the thread format. If the
+    edit fails or still doesn't fit, keep the original — William can trim
+    in review and the X publisher clips rather than drops."""
     edited = llm.complete(
-        system=("You tighten X posts. Cut the text to UNDER 260 characters. "
-                "Keep every concrete number and the hook (the opening line); "
-                "cut adjectives, asides, and the weakest sentence. Return "
-                "only the edited post."),
+        system=("You edit X story-posts that publish as threads, one "
+                "paragraph per tweet. Rewrite so EVERY paragraph is under "
+                "270 characters and the whole post is under 950 — split "
+                "long paragraphs at natural breaks or cut the weakest "
+                "sentences. Keep the hook (first paragraph), every "
+                "concrete number, and the paragraph order. Return only "
+                "the edited post."),
         user=body,
-        max_tokens=300,
+        max_tokens=600,
     )
-    if edited and len(edited) <= X_POST_MAX and len(edited) >= 60:
+    if edited and len(edited) >= 60 and _fits_thread(edited):
         return edited
     return body
 
@@ -319,6 +354,12 @@ def _llm_draft(dtype: str, items: list[ResearchItem], brand: dict,
         "- TWIST THE KNIFE: after the opening fact, add the line that makes "
         "it matter — the catch, the cost, the gap, what happens if you "
         "ignore it. Pull it from the research, never invent it.\n"
+        "- PAY THE HOOK OFF: the hook stops the scroll; the body must then "
+        "deliver the whole story on its own — the background a newcomer "
+        "needs, the numbers, why it matters. Never assume the reader saw "
+        "an earlier post or knows the project. A hook with no payoff is "
+        "clickbait; a post that needs the article to make sense is a "
+        "teaser. Write neither.\n"
         "- Specificity IS the credibility: exact numbers, exact timeframes "
         "('over the last 12 months'), exact names. A hook with a real "
         "number beats a hook with an adjective every time.\n"
@@ -372,7 +413,7 @@ def _llm_draft(dtype: str, items: list[ResearchItem], brand: dict,
         "Return ONLY the content itself, no preamble, no meta-commentary."
     )
     body = llm.complete(system, user, max_tokens=1500)
-    if body and dtype in SINGLE_TWEET_TYPES and len(body) > X_POST_MAX:
+    if body and dtype in X_SOLO_TYPES and not _fits_thread(body):
         body = _tighten_x_post(body)
     return body
 
