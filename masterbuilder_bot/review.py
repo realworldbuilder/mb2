@@ -29,6 +29,13 @@ def approve(path: Path, reason: str = "") -> Path:
     dest = storage.set_status_and_move(Path(path), "approved", config.approved_dir())
     feedback.log_event("approved", dest, dtype, title, reason, body)
     log("review", f"approved {dest.name} -> {dest.parent}")
+    # Approval is the signal a story is worth tracking: open a continuity
+    # arc so tomorrow's research can pay this story off. Never blocks.
+    try:
+        from masterbuilder_bot import continuity
+        continuity.register_from_approval(dest)
+    except Exception as e:  # noqa: BLE001
+        log("review", f"continuity arc registration skipped: {e}")
     return dest
 
 

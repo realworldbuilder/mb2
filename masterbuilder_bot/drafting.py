@@ -25,9 +25,9 @@ ideas keep a sources footer in the body.
 from datetime import datetime
 from pathlib import Path
 
-from masterbuilder_bot import config, learning, llm, storage, triage
-from masterbuilder_bot.logging_utils import log
-from masterbuilder_bot.models import DRAFT_PLAN, DraftMeta, ResearchItem
+from masterbuilder_bot import config, continuity, knowledge, learning, llm, storage, triage
+from masterbuilder_bot.logging_utils import log, log_error
+from masterbuilder_bot.models import DraftMeta, ResearchItem, plan_slots
 
 TYPE_INSTRUCTIONS = {
     "x_post": (
@@ -63,6 +63,52 @@ TYPE_INSTRUCTIONS = {
         "provided (today's most cracked story): describe the image, the "
         "caption, and why builders would share it"
     ),
+    # ---- continuity types: content that strings the days together ----
+    "followup": (
+        "one short X post UPDATE (under 260 characters) on a story we "
+        "covered before — see ARC CONTEXT below. Lead with what CHANGED "
+        "(the new number or milestone, hook-grade), then the callback: "
+        "'We flagged this on <date>' with the original key fact. The delta "
+        "between then and now IS the story. Facts only, numbers verbatim"
+    ),
+    "receipt": (
+        "one short X post grading a dated claim — see ARC CONTEXT below. "
+        "Ledger style: what the source claimed, when they said it, when it "
+        "was due, and what actually happened — delivered, slipped, or "
+        "'deadline passed, no word we've seen'. Quote the claim close to "
+        "verbatim. No gloating, no takes — the calendar is the judgment"
+    ),
+    "record": (
+        "one short X post on a record falling — see RECORD CONTEXT below. "
+        "New mark first (cold number), then the previous record it beat "
+        "(holder, value, date). Two numbers colliding is the whole post"
+    ),
+    # ---- named weekly segments ----
+    "demo_vs_dirt": (
+        "this week's DEMO vs DIRT — the Monday segment. From today's "
+        "research, pair the most polished claim or demo with the field "
+        "reality that grounds it: a cost, a delay, a constraint, or a "
+        "second story that undercuts it. Open the hook with 'Demo vs "
+        "Dirt:'. Both sides must be sourced facts from the research — "
+        "never invent the dirt. One post or a 2-3 tweet thread"
+    ),
+    "still_standing": (
+        "this week's STILL STANDING — the Wednesday segment on things that "
+        "outlive their design life: infrastructure decades past spec, "
+        "machines that refuse to die, maintenance that never ends. Pick "
+        "the best endurance story in today's research; the age gap is the "
+        "hook (years in service vs years designed for). One short post, "
+        "under 260 characters if it fits"
+    ),
+    "punch_list": (
+        "THE PUNCH LIST — the Friday wrap essay (400-700 words, markdown "
+        "headers allowed) walking this week's stories like a foreman walks "
+        "a job. Use THE WEEK'S MATERIAL below: find the through-line if "
+        "the week has one, call back to what we published, and close with "
+        "the open items — what to watch next week. If there's no "
+        "through-line, don't manufacture one: walk it story by story, "
+        "concrete numbers, field-first"
+    ),
 }
 
 TYPE_TITLES = {
@@ -70,7 +116,16 @@ TYPE_TITLES = {
     "reading_list": "Reading list",
     "essay": "Field Manual essay",
     "content_idea": "Content idea",
+    "followup": "Update",
+    "receipt": "Receipt",
+    "record": "Record broken",
+    "demo_vs_dirt": "Demo vs Dirt",
+    "still_standing": "Still Standing",
+    "punch_list": "The Punch List",
 }
+
+# X-bound types that must land as one tweet (get the tighten pass).
+SINGLE_TWEET_TYPES = ("x_post", "followup", "receipt", "record", "still_standing")
 
 
 def load_brand() -> dict[str, str]:
@@ -105,7 +160,68 @@ def _assign_items(ranked: list[ResearchItem], dtype: str, n: int) -> list[Resear
         return ranked[:5]
     if dtype == "x_post":
         return [ranked[n % len(ranked)]]
+    if dtype == "demo_vs_dirt":
+        return ranked[:6]  # the model needs options to find a real pairing
+    if dtype == "still_standing":
+        return ranked[:8]
+    if dtype == "punch_list":
+        return ranked[:5]  # week context arrives separately via week_digest
     return [ranked[0]]
+
+
+def _find_item(ranked: list[ResearchItem], url: str) -> list[ResearchItem]:
+    return [i for i in ranked if i.url == url][:1]
+
+
+def _special_context(dtype: str, payload: dict, day: str) -> str:
+    """The extra prompt block for continuity drafts: the arc's history or
+    the record that just fell. All of it is recorded fact — the drafter
+    frames, it never invents."""
+    if dtype in ("followup", "receipt"):
+        arc = payload["arc"]
+        p = arc.get("pending") or {}
+        lines = [
+            "ARC CONTEXT — this is a story we already covered:",
+            f"- We published on {arc['opened']}: \"{arc.get('origin_head', '')[:280]}\"",
+            f"- We were watching for: {arc.get('watch_for', '')}",
+        ]
+        if arc.get("claim"):
+            lines.append(f"- The dated claim from the source: \"{arc['claim']}\""
+                         + (f" (due {arc['due_date']})" if arc.get("due_date") else ""))
+        if dtype == "receipt":
+            lines.append(f"- Outcome on the due date: {p.get('outcome', 'no_news')}"
+                         " (hit = delivered, miss = slipped/failed, no_news = "
+                         "deadline passed with no confirmation in our research)")
+        if p.get("title"):
+            lines.append(f"- Today's development: {p['title']} — {p.get('note', '')}")
+        return "\n".join(lines)
+    if dtype == "record":
+        e = payload["event"]
+        r, prev = e["record"], e["record"].get("previous", {})
+        return ("RECORD CONTEXT — a standing record just fell:\n"
+                f"- Metric: {e['label']}\n"
+                f"- New mark: {r['value']} {r['unit']} — {r['holder']} ({r['date']})\n"
+                f"- Previous record: {prev.get('value')} {prev.get('unit', r['unit'])}"
+                f" — {prev.get('holder', 'unknown')} ({prev.get('date', '?')})")
+    if dtype == "punch_list":
+        return continuity.week_digest(day)
+    return ""
+
+
+def _streak_block(day: str) -> str:
+    """Recurring names from the knowledge base, injected as selection
+    guidance — a streak is a fact, not a take."""
+    try:
+        lines = knowledge.recurring_entities(day)
+    except Exception:  # noqa: BLE001
+        return ""
+    if not lines:
+        return ""
+    return ("\n\nRECURRING NAMES (entities that keep showing up in the "
+            "research):\n" + "\n".join(lines) +
+            "\nIf today's story features one of them, say so factually "
+            "('3rd appearance this month') — it signals the story is "
+            "developing. Never force it.")
 
 
 # ---------- LLM engine (Anthropic / OpenAI / local via llm.py) ----------
@@ -153,7 +269,7 @@ def _tighten_x_post(body: str) -> str:
 
 
 def _llm_draft(dtype: str, items: list[ResearchItem], brand: dict,
-               day: str) -> str | None:
+               day: str, extra_context: str = "") -> str | None:
     """Return draft body text, or None if no provider / call failed."""
     research_block = _research_block(dtype, items)
 
@@ -239,21 +355,24 @@ def _llm_draft(dtype: str, items: list[ResearchItem], brand: dict,
         shots = "\n\n".join(f"[{e['why']}]\n{e['text']}" for e in exemplars)
         system += ("\n\nEXEMPLARS — real posts that worked. Match their energy "
                    "and concreteness, don't copy their content:\n" + shots)
+    system += _streak_block(day)
     url_rule = (
         "Include each item's URL exactly as given in the research.\n"
         if dtype == "reading_list" else
         "Do not include any URLs in the content — the source link is posted "
         "separately.\n"
     )
+    context_block = f"\n{extra_context}\n" if extra_context else ""
     user = (
         f"Today's date: {day}\n\n"
-        f"Today's research items:\n{research_block}\n\n"
+        f"Today's research items:\n{research_block}\n"
+        f"{context_block}\n"
         f"Write {TYPE_INSTRUCTIONS[dtype]}.\n"
         + url_rule +
         "Return ONLY the content itself, no preamble, no meta-commentary."
     )
     body = llm.complete(system, user, max_tokens=1500)
-    if body and dtype == "x_post" and len(body) > X_POST_MAX:
+    if body and dtype in SINGLE_TWEET_TYPES and len(body) > X_POST_MAX:
         body = _tighten_x_post(body)
     return body
 
@@ -324,6 +443,37 @@ def _template_draft(dtype: str, items: list[ResearchItem]) -> str:
     return "No research pulled today (offline or all sources failed). Check the Logs page."
 
 
+def _template_special(dtype: str, payload: dict, items: list[ResearchItem],
+                      day: str) -> str:
+    """Deterministic fallback for continuity drafts — dry, factual, and
+    honest about what the ledger knows."""
+    if dtype in ("followup", "receipt"):
+        arc = payload["arc"]
+        p = arc.get("pending") or {}
+        if dtype == "receipt":
+            outcome = {"hit": "It happened.", "miss": "It slipped.",
+                       "no_news": "Deadline passed. No word."}.get(
+                           p.get("outcome", "no_news"), "Unclear.")
+            claim = arc.get("claim") or arc["title"]
+            return (f"On {arc['opened']} the source said: {claim} "
+                    f"Due {arc.get('due_date', '?')}. {outcome}")
+        note = p.get("note") or p.get("title", "there's movement")
+        return (f"UPDATE — we flagged this on {arc['opened']}: "
+                f"{arc['title']}. Today: {note}")
+    if dtype == "record":
+        e = payload["event"]
+        r, prev = e["record"], e["record"].get("previous", {})
+        return (f"New record — {e['label']}: {r['value']} {r['unit']} "
+                f"({r['holder']}). Previous: {prev.get('value')} "
+                f"{prev.get('unit', r['unit'])} ({prev.get('holder', 'unknown')}, "
+                f"{prev.get('date', '?')}).")
+    if dtype == "punch_list":
+        return ("# The Punch List — week of " + day + "\n\n"
+                + continuity.week_digest(day))
+    # segments with no LLM fall back to a plain factual post
+    return _template_draft("x_post", items)
+
+
 # ---------- main entry ----------
 
 def generate_drafts(day: str | None = None) -> tuple[list[Path], str]:
@@ -337,42 +487,100 @@ def generate_drafts(day: str | None = None) -> tuple[list[Path], str]:
     brand = load_brand()
     created_at = datetime.now().isoformat(timespec="seconds")
 
+    # Continuity: followups/receipts from open arcs + today's broken record.
+    # They replace x_post slots (see models.plan_slots) — volume stays flat.
+    specials: list[dict] = []
+    try:
+        specials = continuity.pending_specials(day)
+        event = continuity.record_event(day)
+        if event:
+            specials.append({"dtype": "record", "event": event})
+    except Exception as e:  # noqa: BLE001 — continuity never blocks drafting
+        log_error(f"[drafting] continuity specials failed: {e}")
+        specials = []
+    slots = plan_slots(day, specials)
+
     llm_count = 0
     paths: list[Path] = []
     index = 1
+    counts: dict[str, int] = {}
 
     provider = llm.detect_provider()
     log("drafting", f"generating drafts for {day} from {len(ranked)} triaged stories "
-                    f"(provider: {provider or 'none — templates'})")
+                    f"({len(specials)} continuity specials; "
+                    f"provider: {provider or 'none — templates'})")
 
-    for dtype, count in DRAFT_PLAN:
-        for n in range(count):
+    for slot in slots:
+        payload = slot if isinstance(slot, dict) else None
+        dtype = payload["dtype"] if payload else slot
+        n = counts.get(dtype, 0)
+        counts[dtype] = n + 1
+
+        if payload and dtype in ("followup", "receipt"):
+            arc = payload["arc"]
+            picked = _find_item(ranked, (arc.get("pending") or {}).get("url", ""))
+        elif payload and dtype == "record":
+            picked = _find_item(ranked, payload["event"]["record"]["source_url"])
+        else:
             picked = _assign_items(ranked, dtype, n)
-            body = _llm_draft(dtype, picked, brand, day)
-            if body:
-                llm_count += 1
-            else:
-                body = _template_draft(dtype, picked)
-            if dtype in ("essay", "content_idea"):
-                # X-bound types carry sources in frontmatter only — the X
-                # publisher posts the links as a reply tweet.
-                body += _sources_footer(picked)
 
-            title = f"{TYPE_TITLES[dtype]} {n + 1} — {day}"
-            meta = DraftMeta(
-                title=title,
-                type=dtype,
-                status="draft",
-                created_at=created_at,
-                sources=[i.url for i in picked],
-                # drafted from the real article = safest; headline-only or
-                # unsourced evergreen deserve a harder look before approving
-                risk_score=1 if picked and picked[0].fulltext else 2,
-                usefulness_score=3,
-                originality_score=3,
-            )
-            paths.append(storage.save_draft(meta, body, day, index=index))
-            index += 1
+        extra = _special_context(dtype, payload or {}, day)
+        body = _llm_draft(dtype, picked, brand, day, extra_context=extra)
+        if body:
+            llm_count += 1
+        else:
+            body = (_template_special(dtype, payload or {}, picked, day)
+                    if payload or dtype == "punch_list"
+                    else _template_draft(dtype, picked))
+        if dtype in ("essay", "content_idea", "punch_list"):
+            # X-bound types carry sources in frontmatter only — the X
+            # publisher posts the links as a reply tweet.
+            body += _sources_footer(picked)
+
+        # frontmatter sources: today's items, plus — for continuity types —
+        # the arc's original sources and our own earlier post, so the
+        # receipt is clickable end to end.
+        sources = [i.url for i in picked]
+        arc_id = ""
+        if payload and dtype in ("followup", "receipt"):
+            arc = payload["arc"]
+            arc_id = arc["id"]
+            sources += [u for u in arc.get("source_urls", []) if u not in sources]
+            origin = continuity.origin_post_url(arc)
+            if origin:
+                sources.append(origin)
+        elif payload and dtype == "record":
+            r = payload["event"]["record"]
+            sources += [u for u in (r.get("source_url", ""),
+                                    r.get("previous", {}).get("source_url", ""))
+                        if u and u not in sources]
+
+        title = f"{TYPE_TITLES[dtype]} {n + 1} — {day}"
+        meta = DraftMeta(
+            title=title,
+            type=dtype,
+            status="draft",
+            created_at=created_at,
+            sources=sources,
+            # drafted from the real article = safest; headline-only or
+            # unsourced evergreen deserve a harder look before approving
+            risk_score=1 if picked and picked[0].fulltext else 2,
+            usefulness_score=3,
+            originality_score=3,
+            arc_id=arc_id,
+        )
+        path = storage.save_draft(meta, body, day, index=index)
+        paths.append(path)
+        index += 1
+
+        # mark the ledger so a re-run doesn't draft the same update twice
+        try:
+            if arc_id:
+                continuity.mark_drafted(arc_id, path.name)
+            elif payload and dtype == "record":
+                continuity.mark_record_drafted(day, payload["event"]["category"])
+        except Exception as e:  # noqa: BLE001
+            log_error(f"[drafting] could not mark continuity ledger: {e}")
 
     if llm_count == len(paths):
         engine_used = f"llm:{provider}"

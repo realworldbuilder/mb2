@@ -115,12 +115,26 @@ def main() -> int:
         check("research runs offline", storage.research_file("2026-01-01").exists(),
               f"{len(items)} items, {len(errors)} errors")
 
-        from masterbuilder_bot.models import DRAFT_PLAN
-        expected = sum(count for _, count in DRAFT_PLAN)
+        from masterbuilder_bot.models import plan_slots
+        expected = len(plan_slots("2026-01-01", []))
         paths, engine = generate_drafts(day="2026-01-01")
         check("drafting completes (template fallback ok)", len(paths) == expected,
               f"{len(paths)} drafts (expected {expected}), engine={engine}")
         check("nothing was posted", not storage.list_posted())
+
+        # continuity: the approval above opened an arc (heuristic, offline),
+        # the morning check survives, and Friday's plan swaps in the wrap
+        from masterbuilder_bot import continuity
+        check("approval opened a story arc", len(continuity.open_arcs()) >= 1,
+              f"{len(continuity.open_arcs())} open arcs in memory/arcs.json")
+        summary = continuity.check("2026-01-02")
+        check("continuity morning check runs offline", isinstance(summary, dict),
+              str(summary))
+        friday = plan_slots("2026-01-02", [])  # 2026-01-02 is a Friday
+        check("Friday plan includes The Punch List", "punch_list" in friday)
+        monday = plan_slots("2026-01-05", [{"dtype": "followup"}])
+        check("specials replace x_post slots, one always survives",
+              monday.count("x_post") >= 1 and any(isinstance(s, dict) for s in monday))
 
         from masterbuilder_bot import knowledge
         new, upd = knowledge.build_from_research(day="2026-01-01")

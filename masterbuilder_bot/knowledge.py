@@ -348,6 +348,32 @@ def list_entities(verified_only: bool = False) -> list[dict]:
     return sorted(out, key=lambda e: (e["last_seen"], e["mention_count"]), reverse=True)
 
 
+def recurring_entities(day: str | None = None, min_mentions: int = 2,
+                       recent_days: int = 14, top: int = 8) -> list[str]:
+    """Entities that keep showing up — fuel for factual streak callouts
+    ('3rd appearance this month') in drafting. Never raises."""
+    from datetime import date
+
+    day = day or storage.today()
+    try:
+        today = date.fromisoformat(day)
+    except ValueError:
+        return []
+    lines = []
+    for e in list_entities():
+        if e["mention_count"] < min_mentions or not e["last_seen"]:
+            continue
+        try:
+            age = (today - date.fromisoformat(e["last_seen"])).days
+        except ValueError:
+            continue
+        if 0 <= age <= recent_days:
+            lines.append(f"- {e['name']} ({e['type']}): {e['mention_count']} "
+                         f"appearances since {e['first_seen']}, "
+                         f"last on {e['last_seen']}")
+    return lines[:top]
+
+
 def reverify_all() -> tuple[int, int]:
     """Re-run link verification over every entity. Returns (verified, total)."""
     verified = total = 0

@@ -21,7 +21,7 @@ from _bootstrap import ROOT
 import frontmatter  # noqa: E402
 import markdown  # noqa: E402
 
-from masterbuilder_bot import config, storage  # noqa: E402
+from masterbuilder_bot import config, continuity, storage  # noqa: E402
 from masterbuilder_bot.knowledge import list_entities  # noqa: E402
 
 DOCS = ROOT / "docs"
@@ -233,6 +233,8 @@ def page(title: str, body: str, depth: int = 0, sheet: str = "A-001",
 </header>
 <nav class="plan"><a href="{prefix}index.html">field manual</a>
      <a href="{prefix}directory/index.html">directory</a>
+     <a href="{prefix}receipts/index.html">receipts</a>
+     <a href="{prefix}records/index.html">records</a>
      <button id="mode" type="button">light mode</button></nav>
 {body}
 <footer>
@@ -268,6 +270,8 @@ def build() -> tuple[int, int]:
         shutil.rmtree(DOCS)
     (DOCS / "posts").mkdir(parents=True)
     (DOCS / "directory").mkdir()
+    (DOCS / "receipts").mkdir()
+    (DOCS / "records").mkdir()
     (DOCS / "style.css").write_text(CSS, encoding="utf-8")
     (DOCS / ".nojekyll").write_text("", encoding="utf-8")
 
@@ -290,24 +294,119 @@ def build() -> tuple[int, int]:
             page(p["title"], body, depth=1, sheet=sheet_nums[p["slug"]]),
             encoding="utf-8")
 
-    # ---- directory ----
+    # ---- directory (+ one dossier page per verified entity) ----
+    for i, e in enumerate(sorted(entities, key=lambda x: x["name"].lower())):
+        timeline = "".join(
+            f"<li>{html.escape(str(m.get('date', '')))} — "
+            f"<a href='{html.escape(str(m.get('url', '')))}'>"
+            f"{html.escape(str(m.get('title', '')))}</a> · "
+            f"<span class='type'>{html.escape(str(m.get('source', '')))}</span></li>"
+            for m in reversed(e["mentions"]))
+        dossier = (f"<article>{stamp('on file', 'the dossier')}"
+                   f"<h1>{html.escape(e['name'])}</h1>"
+                   f"<p class='meta'>{html.escape(e['type'])} · first seen "
+                   f"{html.escape(e['first_seen'])} · {e['mention_count']} "
+                   f"mention{'s' if e['mention_count'] != 1 else ''}</p>"
+                   f"<p>{html.escape(e['summary'])}</p>"
+                   f"<p><a href='{html.escape(e['url'])}'>official site ↗</a></p>"
+                   "<h3>Every time they crossed the research desk</h3>"
+                   f"<ul class='sources'>{timeline}</ul></article>")
+        (DOCS / "directory" / f"{e['slug']}.html").write_text(
+            page(e["name"], dossier, depth=1, sheet=f"D-{101 + i}"),
+            encoding="utf-8")
+
     rows = "".join(
-        f"<tr><td><a href='{html.escape(e['url'])}'>{html.escape(e['name'])}</a></td>"
+        f"<tr><td><a href='{html.escape(e['slug'])}.html'>{html.escape(e['name'])}</a></td>"
         f"<td class='type'>{html.escape(e['type'])}</td>"
         f"<td>{html.escape(e['summary'])}</td>"
-        f"<td>{e['mention_count']}</td></tr>"
+        f"<td>{e['mention_count']}</td>"
+        f"<td><a href='{html.escape(e['url'])}'>site ↗</a></td></tr>"
         for e in sorted(entities, key=lambda x: (x["type"], x["name"].lower())))
-    directory_body = stamp("verified", "record set") + (
+    directory_body = stamp("verified", "no bullshit") + (
         "<h2>The Directory</h2>"
         "<p class='meta'>Companies, software, hardware, materials, and players from "
         "the daily research. Only entities with a working, verified link are listed "
-        "— no bullshit.</p>"
-        f"<table><tr><th>name</th><th>type</th><th>what it is</th><th>mentions</th></tr>{rows}</table>"
+        "— no bullshit. Names open the dossier: every mention, dated.</p>"
+        f"<table><tr><th>name</th><th>type</th><th>what it is</th><th>mentions</th><th>link</th></tr>{rows}</table>"
         if entities else
         "<h2>The Directory</h2><p class='meta'>Nothing verified yet — check back after "
         "the next research run.</p>")
     (DOCS / "directory" / "index.html").write_text(
         page("Directory", directory_body, depth=1, sheet="A-002"), encoding="utf-8")
+
+    # ---- receipts: as-built vs as-promised ----
+    arcs = continuity.load_arcs()
+    receipts = [a for a in arcs if a.get("due_date")]
+    watching = [a for a in continuity.open_arcs(arcs) if not a.get("due_date")]
+    outcome_label = {"hit": "HIT — delivered", "miss": "MISS — slipped",
+                     "no_news": "DUE — no word", "open": "pending",
+                     "updated": "pending", "closed": "closed"}
+    r_rows = "".join(
+        f"<tr><td>{html.escape(a.get('claim') or a['title'])}"
+        + (f" <a href='{html.escape(a['source_urls'][0])}'>[source]</a>"
+           if a.get("source_urls") else "")
+        + f"</td><td class='type'>{html.escape(a['opened'])}</td>"
+        f"<td class='type'>{html.escape(a['due_date'])}</td>"
+        f"<td class='type'>{html.escape(outcome_label.get(a['status'], a['status']))}</td></tr>"
+        for a in sorted(receipts, key=lambda x: x["due_date"]))
+    w_rows = "".join(
+        f"<tr><td>{html.escape(a['title'])}</td>"
+        f"<td>{html.escape(a.get('watch_for', ''))}</td>"
+        f"<td class='type'>{html.escape(a['opened'])}</td></tr>"
+        for a in sorted(watching, key=lambda x: x["opened"], reverse=True)[:30])
+    hits = sum(1 for a in receipts if a["status"] == "hit")
+    misses = sum(1 for a in receipts if a["status"] == "miss")
+    receipts_body = stamp("as-built", "vs as-promised") + "<h2>The Receipts</h2>"
+    if receipts:
+        receipts_body += (
+            f"<p class='meta'>{len(receipts)} dated claims on file · {hits} hit · "
+            f"{misses} missed · the calendar keeps the score. Every claim is the "
+            "source's own words — we just wrote down the date.</p>"
+            f"<table><tr><th>the claim</th><th>said on</th><th>due</th>"
+            f"<th>outcome</th></tr>{r_rows}</table>")
+    else:
+        receipts_body += (
+            "<p class='meta'>No dated claims on file yet. When a company puts a "
+            "date on a promise, it gets written down here — and graded when the "
+            "date arrives.</p>")
+    if w_rows:
+        receipts_body += ("<h2>Currently Watching</h2>"
+                          f"<table><tr><th>story</th><th>watching for</th>"
+                          f"<th>since</th></tr>{w_rows}</table>")
+    (DOCS / "receipts" / "index.html").write_text(
+        page("Receipts", receipts_body, depth=1, sheet="A-003"), encoding="utf-8")
+
+    # ---- records: the record set ----
+    record_data = continuity.load_records()["records"]
+    rec_rows = "".join(
+        f"<tr><td>{html.escape(r['label'])}</td>"
+        f"<td>{html.escape(str(r['value']))} {html.escape(r['unit'])}"
+        f" <a href='{html.escape(r.get('source_url', ''))}'>[source]</a></td>"
+        f"<td>{html.escape(r.get('holder', ''))}</td>"
+        f"<td class='type'>{html.escape(r['date'])}</td>"
+        f"<td class='type'>"
+        + (f"{html.escape(str(r['previous'].get('value')))} "
+           f"{html.escape(r['previous'].get('unit', ''))} — "
+           f"{html.escape(r['previous'].get('holder', ''))} "
+           f"({html.escape(r['previous'].get('date', ''))})"
+           if r.get("previous") else "first on the books")
+        + "</td></tr>"
+        for r in sorted(record_data.values(), key=lambda x: x["date"], reverse=True))
+    records_body = stamp("record set", "current holders") + "<h2>The Record Set</h2>"
+    if record_data:
+        records_body += (
+            f"<p class='meta'>{len(record_data)} records tracked — hard numbers "
+            "from the daily research, updated when they fall. Every mark links "
+            "its source.</p>"
+            f"<table><tr><th>record</th><th>current mark</th><th>holder</th>"
+            f"<th>set</th><th>previous</th></tr>{rec_rows}</table>")
+    else:
+        records_body += (
+            "<p class='meta'>The record book is open. Fastest, largest, longest, "
+            "first-at-scale — when the research turns up a mark, it gets logged "
+            "here, and beaten records keep their history.</p>")
+    (DOCS / "records" / "index.html").write_text(
+        page("Records", records_body, depth=1, sheet="A-004"), encoding="utf-8")
 
     # ---- home ----
     post_cards = "".join(
@@ -321,7 +420,12 @@ def build() -> tuple[int, int]:
     home = (stamp("issued", "for construction")
             + f"<h2>Latest from the Field Manual</h2>{HOME_FIG}{post_cards}"
             f"<h2>Directory</h2><p class='meta'>{len(entities)} verified entries and "
-            f"counting — <a href='directory/index.html'>browse the directory</a>.</p>")
+            f"counting — <a href='directory/index.html'>browse the directory</a>.</p>"
+            f"<h2>Ledgers</h2><p class='meta'>{len(receipts)} dated claims on "
+            f"<a href='receipts/index.html'>the receipts</a> ({hits} hit, {misses} "
+            f"missed) · {len(record_data)} marks in "
+            f"<a href='records/index.html'>the record set</a>. The calendar keeps "
+            "the score.</p>")
     (DOCS / "index.html").write_text(page("Home", home), encoding="utf-8")
 
     # ---- 404: served by GitHub Pages at any bad path, so links are absolute ----

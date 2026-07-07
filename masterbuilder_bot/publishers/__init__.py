@@ -27,6 +27,13 @@ PLATFORM_FOR_TYPE = {
     "reading_list": "x",
     "essay": "substack",
     "content_idea": None,
+    # continuity types (followups, receipts, records) and weekly segments:
+    "followup": "x",
+    "receipt": "x",
+    "record": "x",
+    "demo_vs_dirt": "x",
+    "still_standing": "x",
+    "punch_list": "substack",  # the Friday wrap is essay-shaped
     # legacy types (no longer generated, may exist in approved/):
     "x_thread": "x",
     "builder_signal": "x",
