@@ -149,8 +149,9 @@ AUTO_POST_MAX_RISK = 2
 
 
 def auto_post_day(day: str | None = None) -> list[dict]:
-    """BOT_MODE=auto_posting: approve and post the day's X-bound drafts,
-    in slot order, through every rail a manual post goes through.
+    """BOT_MODE=auto_posting: approve and post the day's X- and
+    Substack-bound drafts, in slot order, through every rail a manual
+    post goes through.
 
     Approval here is the real review.approve — it logs feedback, opens
     continuity arcs, and carries the fact card along — so an auto-posted
@@ -167,10 +168,18 @@ def auto_post_day(day: str | None = None) -> list[dict]:
         log("posting", "auto_post_day called but BOT_MODE != auto_posting — no-op")
         return results
 
-    # Retry pass first: approved X posts that never made it out (a prior
-    # run's publisher failure — API credits, outage — leaves them here).
-    retries = [p for p in sorted(storage.list_approved(day))
-               if pubs.platform_for(storage.load_post(p).get("type", "")) == "x"
+    # X posts publicly; Substack is draft-first (the publisher creates a
+    # Substack draft unless SUBSTACK_AUTO_PUBLISH is set), so both are
+    # safe to automate. An unconfigured platform just leaves drafts alone.
+    auto_platforms = tuple(p for p in ("x", "substack")
+                           if pubs.get(p).is_configured())
+
+    # Retry pass first: approved posts (any day) that never made it out —
+    # a prior run's publisher failure (API credits, outage) leaves them
+    # here. Stale ones you no longer want must be rejected/removed from
+    # approved/, otherwise they ship as soon as the platform recovers.
+    retries = [p for p in storage.list_approved()
+               if pubs.platform_for(storage.load_post(p).get("type", "")) in auto_platforms
                and not storage.load_post(p).get("post_id")]
     todo: list[tuple[Path, bool]] = ([(p, True) for p in retries]
                                      + [(p, False) for p in sorted(storage.list_drafts(day))])
@@ -178,7 +187,7 @@ def auto_post_day(day: str | None = None) -> list[dict]:
     for path, already_approved in todo:
         post = storage.load_post(path)
         dtype = post.get("type", "")
-        if pubs.platform_for(dtype) != "x":
+        if pubs.platform_for(dtype) not in auto_platforms:
             continue
         entry = {"file": path.name, "type": dtype}
         if not already_approved and int(post.get("risk_score", 1) or 1) > AUTO_POST_MAX_RISK:

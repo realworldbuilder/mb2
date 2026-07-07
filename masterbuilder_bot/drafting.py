@@ -55,8 +55,23 @@ TYPE_INSTRUCTIONS = {
         "happened (lead with the number or the weird detail, not the "
         "source's name), why a builder cares in a second short sentence, "
         "then the item's URL on its own line. Each tweet under 260 "
-        "characters including the URL. No opinions, no ranking commentary "
-        "— the picks ARE the judgment"
+        "characters including the URL. If UPDATES CONTEXT is provided, "
+        "close with ONE extra 'Still watching' tweet — one dry line per "
+        "tracked story, dates and outcomes only. No opinions, no ranking "
+        "commentary — the picks ARE the judgment"
+    ),
+    "reading_list_substack": (
+        "the Masterbuilder Reading List as a Substack email — 400-800 "
+        "words, markdown. TITLE (first line, as '# <title>'): a hook per "
+        "HOOK CRAFT built on the day's wildest fact — never 'Reading List "
+        "<date>'. Then a 2-3 sentence intro that pays the title off. Then "
+        "one section per research item: a bold '## ' heading stating the "
+        "story's key fact in plain words (not the source's headline), 2-4 "
+        "dry sentences with the concrete numbers and why a builder cares, "
+        "then the item's URL on its own line. If UPDATES CONTEXT is "
+        "provided, close with a '## Still watching' section — one line "
+        "per tracked story with its date and status. No manufactured "
+        "takes; the picks ARE the judgment"
     ),
     "essay": (
         "one Masterbuilder Field Manual essay draft, 400-700 words, markdown "
@@ -135,6 +150,7 @@ TYPE_INSTRUCTIONS = {
 TYPE_TITLES = {
     "x_post": "X post",
     "reading_list": "Reading list",
+    "reading_list_substack": "Reading list digest",
     "essay": "Field Manual essay",
     "content_idea": "Content idea",
     "followup": "Update",
@@ -179,7 +195,7 @@ def _assign_items(ranked: list[ResearchItem], dtype: str, n: int) -> list[Resear
     """
     if not ranked:
         return []
-    if dtype == "reading_list":
+    if dtype in ("reading_list", "reading_list_substack"):
         return ranked[:5]
     if dtype == "x_post":
         return [ranked[n % len(ranked)]]
@@ -229,6 +245,43 @@ def _special_context(dtype: str, payload: dict, day: str) -> str:
     if dtype == "punch_list":
         return continuity.week_digest(day)
     return ""
+
+
+def _updates_digest(specials: list[dict]) -> str:
+    """Continuity specials rendered as one prompt block for the reading
+    list's 'Still watching' section. All recorded fact — the drafter
+    frames, it never invents."""
+    lines = []
+    for s in specials:
+        try:
+            if s.get("dtype") in ("followup", "receipt"):
+                arc = s["arc"]
+                p = arc.get("pending") or {}
+                line = (f"- We covered \"{arc['title']}\" on {arc['opened']} "
+                        f"(watching for: {arc.get('watch_for', '')}).")
+                if s["dtype"] == "receipt":
+                    line += (f" The dated claim \"{arc.get('claim', '')}\" was due "
+                             f"{arc.get('due_date', '?')}; outcome: "
+                             f"{p.get('outcome', 'no_news')}.")
+                if p.get("title"):
+                    line += f" Today: {p['title']} — {p.get('note', '')}"
+                if p.get("url"):
+                    line += f" ({p['url']})"
+                lines.append(line)
+            elif s.get("dtype") == "record":
+                e = s["event"]
+                r, prev = e["record"], e["record"].get("previous", {})
+                lines.append(
+                    f"- RECORD FELL — {e['label']}: {r['value']} {r['unit']} "
+                    f"({r['holder']}, {r['date']}); previous "
+                    f"{prev.get('value')} {prev.get('unit', r['unit'])} "
+                    f"({prev.get('holder', 'unknown')}, {prev.get('date', '?')}).")
+        except Exception:  # noqa: BLE001 — a malformed special never blocks
+            continue
+    if not lines:
+        return ""
+    return ("UPDATES CONTEXT — stories we're already tracking moved today. "
+            "Work these into the 'Still watching' section:\n" + "\n".join(lines))
 
 
 def _streak_block(day: str) -> str:
@@ -400,7 +453,7 @@ def _llm_draft(dtype: str, items: list[ResearchItem], brand: dict,
     system += _streak_block(day)
     url_rule = (
         "Include each item's URL exactly as given in the research.\n"
-        if dtype == "reading_list" else
+        if dtype in ("reading_list", "reading_list_substack") else
         "Do not include any URLs in the content — the source link is posted "
         "separately.\n"
     )
@@ -444,10 +497,12 @@ def _template_draft(dtype: str, items: list[ResearchItem]) -> str:
             "manual, and fix one thing the schedule keeps hiding."
         )
 
-    if dtype == "reading_list":
-        lines = [f"The reading list — {storage.today()}."]
+    if dtype in ("reading_list", "reading_list_substack"):
+        heading = "# " if dtype == "reading_list_substack" else ""
+        lines = [f"{heading}The reading list — {storage.today()}."]
         for item in items[:5]:
-            lines.append(f"{item.title.rstrip('.')}. {_one_liner(item)}\n{item.url}")
+            title = f"## {item.title.rstrip('.')}" if heading else item.title.rstrip(".")
+            lines.append(f"{title}. {_one_liner(item)}\n{item.url}")
         if len(lines) == 1:
             lines.append("Nothing worth your time today (research run came up "
                          "empty). Back tomorrow.")
@@ -530,7 +585,8 @@ def generate_drafts(day: str | None = None) -> tuple[list[Path], str]:
     created_at = datetime.now().isoformat(timespec="seconds")
 
     # Continuity: followups/receipts from open arcs + today's broken record.
-    # They replace x_post slots (see models.plan_slots) — volume stays flat.
+    # Reading-list model: they don't take slots — they become the "Still
+    # watching" UPDATES block inside both reading list formats.
     specials: list[dict] = []
     try:
         specials = continuity.pending_specials(day)
@@ -540,6 +596,7 @@ def generate_drafts(day: str | None = None) -> tuple[list[Path], str]:
     except Exception as e:  # noqa: BLE001 — continuity never blocks drafting
         log_error(f"[drafting] continuity specials failed: {e}")
         specials = []
+    updates_block = _updates_digest(specials)
     slots = plan_slots(day, specials)
 
     llm_count = 0
@@ -567,6 +624,8 @@ def generate_drafts(day: str | None = None) -> tuple[list[Path], str]:
             picked = _assign_items(ranked, dtype, n)
 
         extra = _special_context(dtype, payload or {}, day)
+        if dtype in ("reading_list", "reading_list_substack") and updates_block:
+            extra = (extra + "\n\n" + updates_block).strip()
         body = _llm_draft(dtype, picked, brand, day, extra_context=extra)
         if body:
             llm_count += 1
@@ -630,6 +689,18 @@ def generate_drafts(day: str | None = None) -> tuple[list[Path], str]:
                 continuity.mark_record_drafted(day, payload["event"]["category"])
         except Exception as e:  # noqa: BLE001
             log_error(f"[drafting] could not mark continuity ledger: {e}")
+
+        # reading-list model: the specials were consumed by this draft's
+        # "Still watching" section — mark them so a re-run doesn't repeat
+        if dtype == "reading_list" and updates_block:
+            for s in specials:
+                try:
+                    if s.get("dtype") in ("followup", "receipt"):
+                        continuity.mark_drafted(s["arc"]["id"], path.name)
+                    elif s.get("dtype") == "record":
+                        continuity.mark_record_drafted(day, s["event"]["category"])
+                except Exception as e:  # noqa: BLE001
+                    log_error(f"[drafting] could not mark continuity ledger: {e}")
 
     if llm_count == len(paths):
         engine_used = f"llm:{provider}"

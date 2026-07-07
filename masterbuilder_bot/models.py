@@ -8,54 +8,33 @@ from pydantic import BaseModel, Field
 RESEARCH_STATUSES = ("unreviewed", "useful", "maybe", "ignore")
 
 # Draft types generated each day, and how many of each.
-# Direction (2026-07-05): report what's happening + curate — no
-# manufactured takes. The daily reading list is the flagship.
+# Direction (2026-07-06): the bot IS a reading-list generator. One
+# product, two formats — the daily X thread and the daily Substack
+# digest. No solo posts, no standalone essays; the picks are the
+# judgment. Continuity (arcs/receipts/records) feeds a "Still watching"
+# section INSIDE both formats instead of taking slots of its own.
 DRAFT_PLAN = [
-    ("x_post", 4),
     ("reading_list", 1),
-    ("essay", 1),
-    ("content_idea", 1),
+    ("reading_list_substack", 1),
 ]
 
 DRAFT_TYPES = [t for t, _ in DRAFT_PLAN]
 
-# Named weekly segments (date.weekday(): Mon=0). demo_vs_dirt and
-# still_standing replace an x_post slot; punch_list replaces the essay
-# with the Friday wrap. Changing a segment's day is a one-line edit here.
-WEEKLY_SEGMENTS = {0: "demo_vs_dirt", 2: "still_standing", 4: "punch_list"}
-
-# Continuity draft types (followup/receipt/record) also replace x_post
-# slots — see plan_slots(). At least one fresh x_post always survives.
+# Continuity dtypes produced by masterbuilder_bot.continuity — no longer
+# separate drafts; they become the UPDATES block in the reading list.
 CONTINUITY_TYPES = ("followup", "receipt", "record")
 
 
 def plan_slots(day: str, specials: list) -> list:
     """The day's draft plan as a flat slot list.
 
-    `specials` come from masterbuilder_bot.continuity (dicts with a
-    "dtype" key: followup / receipt / record). They replace x_post slots
-    from the front — continuity content leads the review queue — but
-    never the last one, so every day keeps at least one fresh solo post.
-    Weekday segments take one more x_post slot (or the essay slot, for
-    Friday's punch_list).
+    Reading-list model: always the X thread + the Substack digest.
+    `specials` (continuity followups/receipts/records) don't take slots
+    anymore — drafting folds them into both formats as a "Still
+    watching" section. The signature keeps the specials arg so callers
+    don't care about the model change.
     """
-    from datetime import date
-
-    try:
-        weekday = date.fromisoformat(day).weekday()
-    except ValueError:
-        weekday = -1
-    segment = WEEKLY_SEGMENTS.get(weekday)
-
-    slots: list = ["x_post"] * 4
-    if segment and segment != "punch_list":
-        slots[-1] = segment
-    cap = sum(1 for s in slots if s == "x_post") - 1
-    for i, special in enumerate(specials[:max(0, cap)]):
-        slots[i] = special
-
-    essay = "punch_list" if segment == "punch_list" else "essay"
-    return slots + ["reading_list", essay, "content_idea"]
+    return [t for t, count in DRAFT_PLAN for _ in range(count)]
 
 
 class ResearchItem(BaseModel):

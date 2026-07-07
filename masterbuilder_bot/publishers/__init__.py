@@ -25,6 +25,7 @@ PLATFORMS = {
 PLATFORM_FOR_TYPE = {
     "x_post": "x",
     "reading_list": "x",
+    "reading_list_substack": "substack",
     "essay": "substack",
     "content_idea": None,
     # continuity types (followups, receipts, records) and weekly segments:

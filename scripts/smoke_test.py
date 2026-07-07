@@ -139,11 +139,16 @@ def main() -> int:
         summary = continuity.check("2026-01-02")
         check("continuity morning check runs offline", isinstance(summary, dict),
               str(summary))
-        friday = plan_slots("2026-01-02", [])  # 2026-01-02 is a Friday
-        check("Friday plan includes The Punch List", "punch_list" in friday)
-        monday = plan_slots("2026-01-05", [{"dtype": "followup"}])
-        check("specials replace x_post slots, one always survives",
-              monday.count("x_post") >= 1 and any(isinstance(s, dict) for s in monday))
+        plan = plan_slots("2026-01-05", [{"dtype": "followup"}])
+        check("plan is the reading-list pair (specials take no slots)",
+              plan == ["reading_list", "reading_list_substack"], str(plan))
+        from masterbuilder_bot.drafting import _updates_digest
+        digest = _updates_digest([{"dtype": "record", "event": {
+            "label": "Test mark", "record": {"value": 1, "unit": "x",
+                                             "holder": "t", "date": "2026-01-01",
+                                             "previous": {}}}}])
+        check("continuity specials render as Still-watching context",
+              "RECORD FELL" in digest, digest[:60])
 
         from masterbuilder_bot import knowledge
         new, upd = knowledge.build_from_research(day="2026-01-01")
