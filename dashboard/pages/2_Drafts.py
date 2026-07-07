@@ -43,21 +43,17 @@ else:
 # ---- image (attaches to tweet 1) ------------------------------------------------
 candidates = [c for c in (post.get("media_candidates") or []) if c]
 if candidates:
-    st.caption("Image — attaches to the first tweet. Source photos need a "
-               "rights sanity-check (gov sources are public domain).")
+    st.caption("Fact card — attaches to the first tweet.")
     cols = st.columns(len(candidates))
     for c, col in zip(candidates, cols):
         img_path = media.resolve(c)
         if img_path.exists():
-            label = "source photo" if c.endswith("-source.jpg") else "fact card"
-            col.image(str(img_path), caption=label, use_container_width=True)
+            col.image(str(img_path), caption="fact card", use_container_width=True)
     options = candidates + [""]
-    labels_map = {c: ("source photo" if c.endswith("-source.jpg") else "fact card")
-                  for c in candidates} | {"": "no image"}
     current = post.get("media_choice", "") or ""
     choice = st.radio("Attach", options,
                       index=options.index(current) if current in options else len(options) - 1,
-                      format_func=lambda o: labels_map[o],
+                      format_func=lambda o: "no image" if o == "" else "fact card",
                       horizontal=True, key=f"media-{selected['path']}")
     if choice != current:
         post["media_choice"] = choice

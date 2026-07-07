@@ -1,16 +1,22 @@
 #!/usr/bin/env python3
-"""The daily pipeline: research -> learn -> continuity -> draft -> knowledge.
+"""The daily pipeline: research -> learn -> continuity -> draft -> knowledge
+(-> auto-post, only when BOT_MODE=auto_posting).
 
-Never approves. Never posts. Just gathers signal, updates what it has
-learned from your reviews + real engagement, checks open story arcs and
-records against the fresh research, and writes drafts for you to review.
+In draft_only and approved_posting modes it never approves and never
+posts — it gathers signal, updates what it has learned from your reviews
++ real engagement, checks open story arcs and records against the fresh
+research, and writes drafts for you to review. In auto_posting mode the
+day's X-bound drafts then approve and post themselves through the same
+safety rails a manual post uses; essays and content ideas always wait
+for a human.
 
 Usage: python scripts/run_daily.py
 """
 
 import _bootstrap  # noqa: F401
 
-from masterbuilder_bot import config, continuity, learning, metrics, storage, triage
+from masterbuilder_bot import (config, continuity, learning, metrics, posting,
+                               storage, triage)
 from masterbuilder_bot.drafting import generate_drafts
 from masterbuilder_bot.knowledge import build_from_research, list_entities
 from masterbuilder_bot.logging_utils import log, log_error
@@ -67,12 +73,34 @@ def main() -> int:
     print(f"      {new} new entities, {updated} updated "
           f"({len(list_entities())} total in knowledge/)")
 
+    # Auto mode: the day's X-bound drafts approve and post themselves,
+    # through the exact rails a manual post uses (content, cadence caps,
+    # risk gate). Essays/content ideas always wait for a human.
+    posted_summary = ""
+    if config.bot_mode() == config.AUTO_POSTING:
+        print("[6/6] Auto-posting to X (BOT_MODE=auto_posting)...")
+        try:
+            results = posting.auto_post_day(day)
+            for r in results:
+                mark = "->" if r.get("posted") else "  skipped:"
+                print(f"      {mark} {r['file']} {r.get('url') or r.get('detail', '')}")
+            n = sum(1 for r in results if r.get("posted"))
+            posted_summary = f"{n} auto-posted to X"
+            print(f"      {posted_summary}")
+        except Exception as e:  # noqa: BLE001
+            log_error(f"[posting] auto-post failed: {e}")
+            print(f"      auto-post failed ({e}) — drafts remain in the queue")
+
     log("setup", f"daily run complete: {len(items)} research items, "
-                 f"{len(paths)} drafts, +{new}/{updated} knowledge entities")
+                 f"{len(paths)} drafts, +{new}/{updated} knowledge entities"
+                 + (f", {posted_summary}" if posted_summary else ""))
 
     print("\n" + "=" * 60)
     print(f"Done. Drafts are in: drafts/{day}/")
-    print("Nothing was approved. Nothing was posted.")
+    if posted_summary:
+        print(f"{posted_summary}. Everything else waits in the queue.")
+    else:
+        print("Nothing was approved. Nothing was posted.")
     print("Review with: python scripts/review_queue.py")
     print("Or the dashboard: python scripts/run_dashboard.py")
     print("=" * 60)

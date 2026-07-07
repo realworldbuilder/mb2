@@ -141,3 +141,69 @@ def post_approved(path: Path, dry_run: bool = True, platform: str | None = None)
 def move_to_posted(path: Path) -> Path:
     """Archive a successfully posted file to posted/<day>/."""
     return storage.set_status_and_move(Path(path), "posted", config.posted_dir())
+
+
+# Auto mode never touches drafts the triage pipeline itself flagged as
+# deserving a hard human look.
+AUTO_POST_MAX_RISK = 2
+
+
+def auto_post_day(day: str | None = None) -> list[dict]:
+    """BOT_MODE=auto_posting: approve and post the day's X-bound drafts,
+    in slot order, through every rail a manual post goes through.
+
+    Approval here is the real review.approve — it logs feedback, opens
+    continuity arcs, and carries the fact card along — so an auto-posted
+    story behaves exactly like one William clicked. The daily cadence cap
+    (safety.MAX_POSTS_PER_DAY) is the hard ceiling; higher-risk drafts,
+    non-X types, and anything the rails reject stay in the queue for
+    manual review. Returns one result dict per draft considered."""
+    from masterbuilder_bot import publishers as pubs
+    from masterbuilder_bot import review
+
+    day = day or storage.today()
+    results: list[dict] = []
+    if config.bot_mode() != config.AUTO_POSTING:
+        log("posting", "auto_post_day called but BOT_MODE != auto_posting — no-op")
+        return results
+
+    for path in sorted(storage.list_drafts(day)):
+        post = storage.load_post(path)
+        dtype = post.get("type", "")
+        if pubs.platform_for(dtype) != "x":
+            continue
+        entry = {"file": path.name, "type": dtype}
+        if int(post.get("risk_score", 1) or 1) > AUTO_POST_MAX_RISK:
+            entry.update(posted=False, detail="risk_score too high — left for manual review")
+            results.append(entry)
+            continue
+        # content rail first, BEFORE approving — a draft that can't post
+        # stays a draft for manual attention, not an orphan in approved/
+        try:
+            safety.assert_content_safe(post.content.strip(),
+                                       post.get("sources", []) or [])
+        except safety.SafetyError as e:
+            entry.update(posted=False, detail=f"content blocked: {e}")
+            results.append(entry)
+            continue
+        # cadence rail: once today's cap is hit, everything left waits
+        try:
+            safety.assert_cadence_ok(1)
+        except safety.SafetyError as e:
+            entry.update(posted=False, detail=f"cadence: {e}")
+            results.append(entry)
+            log("posting", f"auto-post stopped at {path.name}: {e}")
+            break
+        try:
+            approved = review.approve(path, reason="auto-posted (BOT_MODE=auto_posting)")
+            result = post_live(approved)
+            entry.update(posted=bool(result.get("posted")),
+                         url=result.get("url", ""), detail=result.get("detail", ""))
+        except Exception as e:  # noqa: BLE001
+            entry.update(posted=False, detail=f"error: {e}")
+        results.append(entry)
+
+    posted_n = sum(1 for r in results if r.get("posted"))
+    log("posting", f"auto-post {day}: {posted_n} posted, "
+                   f"{len(results) - posted_n} skipped/blocked")
+    return results

@@ -58,22 +58,27 @@ with tabs[-1]:
 
     st.divider()
     st.subheader("Bot mode")
-    new_mode = st.radio("Mode", [config.DRAFT_ONLY, config.APPROVED_POSTING],
-                        index=0 if config.bot_mode() == config.DRAFT_ONLY else 1,
-                        help="draft_only: the bot can never post. approved_posting: "
-                             "posting checks are armed (live posting is still a "
-                             "dry-run stub in this version).")
+    modes = [config.DRAFT_ONLY, config.APPROVED_POSTING, config.AUTO_POSTING]
+    new_mode = st.radio(
+        "Mode", modes,
+        index=modes.index(config.bot_mode()) if config.bot_mode() in modes else 0,
+        help="draft_only: the bot can never post. approved_posting: you "
+             "approve AND click post per item. auto_posting: the daily run "
+             "approves and posts the day's X drafts itself (daily cap 5, "
+             "risk-gated; essays and content ideas always wait for you).")
 
-    if new_mode == config.APPROVED_POSTING and config.bot_mode() != new_mode:
+    if new_mode != config.DRAFT_ONLY and config.bot_mode() != new_mode:
         confirmed = st.checkbox(
-            "I understand this arms the posting pipeline. Only approved/ content "
-            "can ever be posted, and live posting stays a dry-run stub until I "
-            "explicitly ask for it — but I'm choosing this deliberately.")
+            "I understand this arms LIVE posting to real accounts"
+            + (" — including fully automatic daily posts to X with no click "
+               "from me" if new_mode == config.AUTO_POSTING else "")
+            + ". Only approved/ content can ever be posted, caps and content "
+              "rails stay on, and I'm choosing this deliberately.")
     else:
         confirmed = True
 
     if st.button("Apply mode", type="primary"):
-        if new_mode == config.APPROVED_POSTING and not confirmed:
+        if new_mode != config.DRAFT_ONLY and not confirmed:
             st.error("Check the confirmation box first.")
         else:
             config.set_bot_mode(new_mode)

@@ -2,7 +2,7 @@
 no "probably fine". If a check fails, the action does not happen.
 
 The rules, in plain English:
-  1. No posting unless BOT_MODE=approved_posting.
+  1. No posting unless BOT_MODE is approved_posting or auto_posting.
   2. No posting from drafts/ — only from approved/.
   3. No mass posting (per-run and per-day caps).
   4. No DMs. The bot has no DM code and never will without you adding it.
@@ -61,10 +61,10 @@ def redact_secrets(text: str) -> str:
 
 def assert_mode_allows_posting() -> None:
     mode = config.bot_mode()
-    if mode != config.APPROVED_POSTING:
+    if mode not in (config.APPROVED_POSTING, config.AUTO_POSTING):
         raise SafetyError(
-            f"BOT_MODE is '{mode}'. Posting requires BOT_MODE=approved_posting. "
-            "Nothing was posted."
+            f"BOT_MODE is '{mode}'. Posting requires BOT_MODE=approved_posting "
+            "or auto_posting. Nothing was posted."
         )
 
 

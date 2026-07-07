@@ -185,14 +185,18 @@ def mode_banner() -> None:
     """Every page calls this: injects the working-set style, then renders
     the mode strip so the posting state is impossible to miss."""
     inject_style()
-    armed = config.bot_mode() == config.APPROVED_POSTING
+    mode = config.bot_mode()
+    mode_msgs = {
+        config.APPROVED_POSTING: "<span class='armed'>approved_posting — live "
+                                 "posting armed, one click per post</span>",
+        config.AUTO_POSTING: "<span class='armed'>auto_posting — daily run "
+                             "posts X drafts itself, no clicks</span>",
+    }
     mode_html = (
         "<div class='mb-mode'>"
         f"<div><span class='lbl'>set</span>working set — backend</div>"
         f"<div><span class='lbl'>mode</span>"
-        + ("<span class='armed'>approved_posting — live posting armed, "
-           "one click per post</span>" if armed else
-           "draft_only — posting disabled")
+        + mode_msgs.get(mode, "draft_only — posting disabled")
         + "</div>"
         "<div><span class='lbl'>rule</span>draft first · approval second · "
         "posting last</div>"

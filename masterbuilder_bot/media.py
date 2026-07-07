@@ -1,46 +1,26 @@
-"""Images for X-bound drafts — real source photos and branded fact cards.
+"""Fact cards for X-bound drafts — branded typographic stat images.
 
-Two candidate types per draft, both honest:
+One candidate per draft: a card rendered locally with Pillow from the
+draft's own strongest number. No stock, no AI art, no invented data —
+the stat comes out of the draft body, which came out of the research.
+(Source-photo og:image candidates existed briefly; William cut them on
+2026-07-06 in favor of cards only.)
 
-  * source photo — the article's own og:image, downloaded and normalized.
-    A real photo of the real thing. Rights vary by source (government
-    agencies are public domain, most publications are not), so it never
-    ships without William seeing it at review.
-  * fact card — a typographic card rendered locally with Pillow from the
-    draft's own strongest number. No stock, no AI art, no invented data:
-    the stat comes out of the draft body, which came out of the research.
-
-Candidates land in drafts/<day>/media/ and are recorded in the draft's
-frontmatter (media_candidates + media_choice). The Drafts page shows
-thumbnails with an attach-or-none picker; whatever media_choice points
+The card lands in drafts/<day>/media/ and is recorded in the draft's
+frontmatter (media_candidates + media_choice). The Drafts page shows a
+thumbnail with an attach-or-none picker; whatever media_choice points
 at when the post goes live is uploaded and attached to tweet 1 by the X
 publisher. Everything here is best-effort — a failure never blocks
 drafting, it just means a text-only post.
 """
 
 import json
-import re
-from io import BytesIO
 from pathlib import Path
 
 from masterbuilder_bot import config, llm, publishers, storage
 from masterbuilder_bot.logging_utils import log, log_error
 
 MEDIA_DIRNAME = "media"
-
-# og:image downloads: skip icons/trackers, keep uploads under X's 5 MB cap.
-MIN_W, MIN_H = 400, 250
-MAX_WIDTH = 1600
-MAX_DOWNLOAD_BYTES = 12 * 1024 * 1024
-_UA = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                     "AppleWebKit/537.36 masterbuilder-bot/1.0"}
-
-_OG_RE = re.compile(
-    r'<meta[^>]+(?:property|name)=["\'](?:og:image|twitter:image)(?::src)?["\']'
-    r'[^>]+content=["\']([^"\']+)["\']', re.I)
-_OG_RE_REV = re.compile(
-    r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+'
-    r'(?:property|name)=["\'](?:og:image|twitter:image)(?::src)?["\']', re.I)
 
 # Card palette — same dark field as the dashboard, one accent.
 _BG = (15, 19, 23)
@@ -85,43 +65,7 @@ def resolve(rel_path: str) -> Path:
     return config.data_home() / rel_path
 
 
-# ---------- candidate 1: the article's own image ----------
-
-def og_image_url(article_url: str) -> str | None:
-    import requests
-
-    r = requests.get(article_url, headers=_UA, timeout=20)
-    if r.status_code != 200:
-        return None
-    m = _OG_RE.search(r.text) or _OG_RE_REV.search(r.text)
-    return m.group(1).strip() if m else None
-
-
-def fetch_source_image(article_url: str, dest: Path) -> Path | None:
-    """og:image -> normalized JPEG at dest, or None if there's no usable
-    image (missing tag, icon-sized, not actually an image)."""
-    import requests
-    from PIL import Image
-
-    img_url = og_image_url(article_url)
-    if not img_url:
-        return None
-    r = requests.get(img_url, headers=_UA, timeout=30)
-    if r.status_code != 200 or len(r.content) > MAX_DOWNLOAD_BYTES:
-        return None
-    img = Image.open(BytesIO(r.content))
-    img.load()
-    if img.width < MIN_W or img.height < MIN_H:
-        return None
-    if img.mode != "RGB":
-        img = img.convert("RGB")
-    if img.width > MAX_WIDTH:
-        img = img.resize((MAX_WIDTH, round(img.height * MAX_WIDTH / img.width)))
-    img.save(dest, "JPEG", quality=88)
-    return dest
-
-
-# ---------- candidate 2: the fact card ----------
+# ---------- the fact card ----------
 
 _STAT_SYSTEM = (
     "You pull the single most scroll-stopping statistic out of a post for "
@@ -197,77 +141,35 @@ def stat_card(stat: str, context: str, kicker: str, dest: Path) -> Path:
     return dest
 
 
-_HOOK_SRC_SYSTEM = (
-    "A post opens with a hook about one story; its research came from a "
-    "numbered list of source URLs. Reply with ONLY the number of the "
-    "source the OPENING PARAGRAPH is about — the image from that article "
-    "will sit next to the hook, so a mismatch looks broken. If unsure, "
-    "reply 1."
-)
-
-
-def _hook_source_index(body: str, sources: list[str]) -> int:
-    """Which source does the hook actually talk about? Matters for
-    multi-story drafts (reading list, Demo vs Dirt) where sources[0] is
-    just the day's top-ranked story, not necessarily the opener."""
-    if len(sources) < 2:
-        return 0
-    src_lines = "\n".join(f"{n + 1}. {u}" for n, u in enumerate(sources))
-    raw = llm.complete(
-        _HOOK_SRC_SYSTEM,
-        f"POST (opening):\n{body[:600]}\n\nSOURCES:\n{src_lines}",
-        max_tokens=10,
-    )
-    m = re.search(r"\d+", raw or "")
-    if m and 1 <= int(m.group()) <= len(sources):
-        return int(m.group()) - 1
-    return 0
-
-
 # ---------- per-draft entry point ----------
 
 def build_for_draft(path: Path) -> list[str]:
-    """Generate image candidates for one draft and record them in its
-    frontmatter. Returns the candidate list (relative paths). X-bound
-    types only; never raises."""
+    """Render the fact card for one draft (when it has a card-worthy
+    number) and record it in the frontmatter. Returns the candidate list
+    (relative paths). X-bound types only; never raises."""
     path = Path(path)
     post = storage.load_post(path)
     dtype = post.get("type", "")
     if publishers.platform_for(dtype) != "x":
         return []
-    day = path.parent.name
-    stem = path.stem
-    out = media_dir(day)
     candidates: list[str] = []
-
-    sources = [str(u) for u in (post.get("sources") or []) if str(u).strip()]
-    if sources:
-        try:
-            hook_src = sources[_hook_source_index(post.content, sources)]
-            got = fetch_source_image(hook_src, out / f"{stem}-source.jpg")
-            if got:
-                candidates.append(_rel(got))
-        except Exception as e:  # noqa: BLE001
-            log_error(f"[media] source image failed for {path.name}: {e}")
-
     try:
         spec = extract_stat(post.content)
         if spec:
             kicker = {"receipt": "The receipt", "record": "Record set",
                       "followup": "Update"}.get(dtype, "Field numbers")
+            out = media_dir(path.parent.name)
             got = stat_card(spec["stat"], spec["context"], kicker,
-                            out / f"{stem}-card.png")
+                            out / f"{path.stem}-card.png")
             candidates.append(_rel(got))
     except Exception as e:  # noqa: BLE001
         log_error(f"[media] fact card failed for {path.name}: {e}")
 
     post["media_candidates"] = candidates
-    # default: the real photo when there is one, else the card — William
-    # can flip to the other candidate or to none at review
     post["media_choice"] = candidates[0] if candidates else ""
     storage.save_post(path, post)
     if candidates:
-        log("media", f"{path.name}: {len(candidates)} image candidate(s)")
+        log("media", f"{path.name}: fact card rendered")
     return candidates
 
 

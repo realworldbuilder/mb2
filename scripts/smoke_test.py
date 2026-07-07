@@ -83,6 +83,15 @@ def main() -> int:
     except safety.SafetyError as e:
         check("safety allows approved/ in approved_posting mode", False, str(e))
 
+    # 3c2. auto_posting mode also arms posting; unknown modes never do
+    os.environ["BOT_MODE"] = "auto_posting"
+    try:
+        safety.assert_mode_allows_posting()
+        check("auto_posting mode arms posting", True)
+    except safety.SafetyError as e:
+        check("auto_posting mode arms posting", False, str(e))
+    os.environ["BOT_MODE"] = "approved_posting"
+
     # 3d. unsourced content is blocked
     try:
         safety.assert_content_safe("some claim", sources=[])

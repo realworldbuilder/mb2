@@ -22,7 +22,8 @@ DASHBOARD_DIR = ROOT / "dashboard"
 
 DRAFT_ONLY = "draft_only"
 APPROVED_POSTING = "approved_posting"
-VALID_MODES = (DRAFT_ONLY, APPROVED_POSTING)
+AUTO_POSTING = "auto_posting"  # daily run approves + posts X drafts itself
+VALID_MODES = (DRAFT_ONLY, APPROVED_POSTING, AUTO_POSTING)
 
 # Names of env vars that hold secrets. Their VALUES must never appear in
 # logs or in the dashboard. Only "set / not set" may be shown.
