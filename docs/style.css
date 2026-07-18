@@ -110,6 +110,18 @@ ul.sources { font-size:.8rem; color:var(--dim); }
 .detail-fig svg { width:100%; height:auto; display:block; }
 .detail-fig figcaption { font-size:.6rem; color:var(--dim); text-transform:uppercase;
                          letter-spacing:1.5px; margin-top:.5rem; text-align:center; }
+article.today { border:1px solid var(--line); padding:1rem 1.2rem 1.2rem;
+                margin-bottom:1.2rem; background:var(--cell); }
+article.today h2 .type { font-size:.68rem; margin-left:.6rem; }
+.subscribe form { display:flex; gap:.5rem; margin-top:.6rem; flex-wrap:wrap; }
+.subscribe input[type=email] { flex:1 1 14rem; background:var(--paper);
+    color:var(--ink); border:1px solid var(--line); padding:.5rem .7rem;
+    font:inherit; }
+.subscribe input[type=email]:focus { outline:none; border-color:var(--ink); }
+.subscribe button { background:var(--redline); color:#fff; border:none;
+    padding:.5rem 1.1rem; font:inherit; text-transform:uppercase;
+    letter-spacing:1px; font-size:.72rem; cursor:pointer; }
+.subscribe button:hover { filter:brightness(1.1); }
 @media (max-width:640px) {
   body { padding:1.2rem .6rem 2rem; }
   .sheet { padding:1rem .9rem 1.4rem; }
