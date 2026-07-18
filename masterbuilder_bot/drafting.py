@@ -46,19 +46,33 @@ TYPE_INSTRUCTIONS = {
         "that single story"
     ),
     "reading_list": (
-        "today's Masterbuilder Reading List as an X thread. Tweet 1 is the "
-        "HOOK (per HOOK CRAFT): lead with the single wildest fact or number "
-        "from today's five stories, twist the knife, then open the "
-        "curiosity gap with a clear promise — e.g. '5 stories worth your "
-        "time today ↓'. Do NOT open with 'The reading list — <date>'. Then "
-        "ONE tweet per research item: a hook-grade first sentence on what "
-        "happened (lead with the number or the weird detail, not the "
-        "source's name), why a builder cares in a second short sentence, "
-        "then the item's URL on its own line. Each tweet under 260 "
-        "characters including the URL. If UPDATES CONTEXT is provided, "
-        "close with ONE extra 'Still watching' tweet — one dry line per "
-        "tracked story, dates and outcomes only. No opinions, no ranking "
-        "commentary — the picks ARE the judgment"
+        "today's Masterbuilder Reading List — the daily page on "
+        "masterbuilder.ai. First line is the HOOK (per HOOK CRAFT): lead "
+        "with the single wildest fact or number from today's five stories "
+        "and twist the knife. Do NOT open with 'The reading list — "
+        "<date>'. Then one short block per research item: a hook-grade "
+        "first sentence on what happened (lead with the number or the "
+        "weird detail, not the source's name), one or two more dry "
+        "sentences with the concrete numbers and why a builder cares, "
+        "then the item's URL on its own line. Blank line between blocks. "
+        "If UPDATES CONTEXT is provided, close with a 'Still watching' "
+        "block — one dry line per tracked story, dates and outcomes only. "
+        "No opinions, no ranking commentary — the picks ARE the judgment"
+    ),
+    "weekly_digest": (
+        "the Masterbuilder WEEKLY reading list as an email — 400-800 "
+        "words, markdown. This is the Monday-morning digest of the past "
+        "week's BEST stories (the research below is the whole week, best "
+        "first — pick the top 5-7, skip near-duplicates). TITLE (first "
+        "line, as '# <title>'): a hook per HOOK CRAFT built on the week's "
+        "wildest fact — never 'Weekly digest <date>'. Then a 2-3 sentence "
+        "intro that pays the title off. Then one section per story: a "
+        "bold '## ' heading stating the story's key fact in plain words "
+        "(not the source's headline), 2-4 dry sentences with the concrete "
+        "numbers and why a builder cares, then the item's URL on its own "
+        "line. If UPDATES CONTEXT is provided, close with a '## Still "
+        "watching' section — one line per tracked story with its date and "
+        "status. No manufactured takes; the picks ARE the judgment"
     ),
     "reading_list_substack": (
         "the Masterbuilder Reading List as a Substack email — 400-800 "
@@ -151,6 +165,7 @@ TYPE_TITLES = {
     "x_post": "X post",
     "reading_list": "Reading list",
     "reading_list_substack": "Reading list digest",
+    "weekly_digest": "Weekly digest",
     "essay": "Field Manual essay",
     "content_idea": "Content idea",
     "followup": "Update",
@@ -197,6 +212,8 @@ def _assign_items(ranked: list[ResearchItem], dtype: str, n: int) -> list[Resear
         return []
     if dtype in ("reading_list", "reading_list_substack"):
         return ranked[:5]
+    if dtype == "weekly_digest":
+        return ranked[:10]  # the model picks 5-7; give it headroom to skip dupes
     if dtype == "x_post":
         return [ranked[n % len(ranked)]]
     if dtype == "demo_vs_dirt":
@@ -210,6 +227,28 @@ def _assign_items(ranked: list[ResearchItem], dtype: str, n: int) -> list[Resear
 
 def _find_item(ranked: list[ResearchItem], url: str) -> list[ResearchItem]:
     return [i for i in ranked if i.url == url][:1]
+
+
+def _week_ranked(day: str) -> list[ResearchItem]:
+    """The past 7 days of triaged research as one list, best story first,
+    deduped by URL — the material for the Monday weekly digest."""
+    from datetime import date, timedelta
+
+    end = date.fromisoformat(day)
+    seen: set[str] = set()
+    items: list[ResearchItem] = []
+    for offset in range(7):
+        d = (end - timedelta(days=offset)).isoformat()
+        try:
+            for item in storage.load_research(d):
+                if item.url in seen or item.status == "ignore":
+                    continue
+                seen.add(item.url)
+                items.append(item)
+        except Exception:  # noqa: BLE001 — a missing day is fine
+            continue
+    items.sort(key=lambda i: i.interest_score, reverse=True)
+    return items
 
 
 def _special_context(dtype: str, payload: dict, day: str) -> str:
@@ -315,7 +354,7 @@ def _research_block(dtype: str, items: list[ResearchItem]) -> str:
             lines.append(f"  Key fact: {i.angle}")
         if i.summary:
             lines.append(f"  Summary: {i.summary[:300]}")
-        if i.fulltext and dtype != "reading_list":
+        if i.fulltext and dtype not in ("reading_list", "weekly_digest"):
             lines.append("  SOURCE MATERIAL (verbatim from the article):\n"
                          + i.fulltext[:2500])
         parts.append("\n".join(lines))
@@ -453,7 +492,7 @@ def _llm_draft(dtype: str, items: list[ResearchItem], brand: dict,
     system += _streak_block(day)
     url_rule = (
         "Include each item's URL exactly as given in the research.\n"
-        if dtype in ("reading_list", "reading_list_substack") else
+        if dtype in ("reading_list", "reading_list_substack", "weekly_digest") else
         "Do not include any URLs in the content — the source link is posted "
         "separately.\n"
     )
@@ -497,10 +536,12 @@ def _template_draft(dtype: str, items: list[ResearchItem]) -> str:
             "manual, and fix one thing the schedule keeps hiding."
         )
 
-    if dtype in ("reading_list", "reading_list_substack"):
-        heading = "# " if dtype == "reading_list_substack" else ""
-        lines = [f"{heading}The reading list — {storage.today()}."]
-        for item in items[:5]:
+    if dtype in ("reading_list", "reading_list_substack", "weekly_digest"):
+        heading = "# " if dtype != "reading_list" else ""
+        label = ("The weekly reading list — week of" if dtype == "weekly_digest"
+                 else "The reading list —")
+        lines = [f"{heading}{label} {storage.today()}."]
+        for item in items[:7 if dtype == "weekly_digest" else 5]:
             title = f"## {item.title.rstrip('.')}" if heading else item.title.rstrip(".")
             lines.append(f"{title}. {_one_liner(item)}\n{item.url}")
         if len(lines) == 1:
@@ -620,11 +661,14 @@ def generate_drafts(day: str | None = None) -> tuple[list[Path], str]:
             picked = _find_item(ranked, (arc.get("pending") or {}).get("url", ""))
         elif payload and dtype == "record":
             picked = _find_item(ranked, payload["event"]["record"]["source_url"])
+        elif dtype == "weekly_digest":
+            picked = _assign_items(_week_ranked(day), dtype, n)
         else:
             picked = _assign_items(ranked, dtype, n)
 
         extra = _special_context(dtype, payload or {}, day)
-        if dtype in ("reading_list", "reading_list_substack") and updates_block:
+        if dtype in ("reading_list", "reading_list_substack",
+                     "weekly_digest") and updates_block:
             extra = (extra + "\n\n" + updates_block).strip()
         body = _llm_draft(dtype, picked, brand, day, extra_context=extra)
         if body:

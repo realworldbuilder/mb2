@@ -13,6 +13,7 @@ Usage: python scripts/build_site.py
 
 import datetime
 import html
+import os
 import shutil
 
 import _bootstrap  # noqa: F401
@@ -183,6 +184,18 @@ ul.sources { font-size:.8rem; color:var(--dim); }
 .detail-fig svg { width:100%; height:auto; display:block; }
 .detail-fig figcaption { font-size:.6rem; color:var(--dim); text-transform:uppercase;
                          letter-spacing:1.5px; margin-top:.5rem; text-align:center; }
+article.today { border:1px solid var(--line); padding:1rem 1.2rem 1.2rem;
+                margin-bottom:1.2rem; background:var(--cell); }
+article.today h2 .type { font-size:.68rem; margin-left:.6rem; }
+.subscribe form { display:flex; gap:.5rem; margin-top:.6rem; flex-wrap:wrap; }
+.subscribe input[type=email] { flex:1 1 14rem; background:var(--paper);
+    color:var(--ink); border:1px solid var(--line); padding:.5rem .7rem;
+    font:inherit; }
+.subscribe input[type=email]:focus { outline:none; border-color:var(--ink); }
+.subscribe button { background:var(--redline); color:#fff; border:none;
+    padding:.5rem 1.1rem; font:inherit; text-transform:uppercase;
+    letter-spacing:1px; font-size:.72rem; cursor:pointer; }
+.subscribe button:hover { filter:brightness(1.1); }
 @media (max-width:640px) {
   body { padding:1.2rem .6rem 2rem; }
   .sheet { padding:1rem .9rem 1.4rem; }
@@ -232,6 +245,7 @@ def page(title: str, body: str, depth: int = 0, sheet: str = "A-001",
   </div>
 </header>
 <nav class="plan"><a href="{prefix}index.html">field manual</a>
+     <a href="{prefix}newsletter/index.html">weekly email</a>
      <a href="{prefix}directory/index.html">directory</a>
      <a href="{prefix}receipts/index.html">receipts</a>
      <a href="{prefix}records/index.html">records</a>
@@ -245,6 +259,22 @@ def page(title: str, body: str, depth: int = 0, sheet: str = "A-001",
 </div>
 {MODE_JS}
 </body></html>"""
+
+
+def subscribe_box(heading: str = "Get it by email") -> str:
+    """Buttondown embed form. Renders only once BUTTONDOWN_USERNAME is set
+    (Connections page) — before that the site simply has no subscribe box."""
+    user = os.environ.get("BUTTONDOWN_USERNAME", "").strip()
+    if not user:
+        return ""
+    action = f"https://buttondown.email/api/emails/embed-subscribe/{html.escape(user)}"
+    return (f"<div class='card subscribe'><h3>{html.escape(heading)}</h3>"
+            "<p class='meta'>The week's best stories, one email, Monday morning. "
+            "No takes, no spam — the picks are the judgment.</p>"
+            f"<form action='{action}' method='post' target='_blank'>"
+            "<input type='email' name='email' placeholder='you@example.com' "
+            "required aria-label='email address'> "
+            "<button type='submit'>subscribe</button></form></div>")
 
 
 def load_posts() -> list[dict]:
@@ -272,6 +302,7 @@ def build() -> tuple[int, int]:
     (DOCS / "directory").mkdir()
     (DOCS / "receipts").mkdir()
     (DOCS / "records").mkdir()
+    (DOCS / "newsletter").mkdir()
     (DOCS / "style.css").write_text(CSS, encoding="utf-8")
     (DOCS / ".nojekyll").write_text("", encoding="utf-8")
 
@@ -408,18 +439,51 @@ def build() -> tuple[int, int]:
     (DOCS / "records" / "index.html").write_text(
         page("Records", records_body, depth=1, sheet="A-004"), encoding="utf-8")
 
-    # ---- home ----
-    post_cards = "".join(
+    # ---- newsletter archive: the weekly digests ----
+    digests = [p for p in posts if p["type"] == "weekly_digest"]
+    digest_cards = "".join(
         f"<div class='card{' new' if i == 0 else ''}'>"
+        f"<h3><a href='../posts/{p['slug']}.html'>{html.escape(p['title'])}</a></h3>"
+        f"<p>{p['date']}</p></div>"
+        for i, p in enumerate(digests)) or (
+            "<p class='meta'>The first weekly digest goes out Monday morning. "
+            "Subscribe and it lands in your inbox.</p>")
+    newsletter_body = (stamp("weekly", "monday morning")
+                       + "<h2>The Weekly Reading List</h2>"
+                       "<p class='meta'>Every Monday: the past week's best stories "
+                       "from AI, architecture, construction, robotics, and space — "
+                       "picked for people who build real things. Real numbers, "
+                       "primary sources, no takes.</p>"
+                       + subscribe_box() + digest_cards)
+    (DOCS / "newsletter" / "index.html").write_text(
+        page("Weekly email", newsletter_body, depth=1, sheet="A-005"),
+        encoding="utf-8")
+
+    # ---- home: today's reading list front and center ----
+    latest_list = next((p for p in posts if p["type"] == "reading_list"), None)
+    if latest_list:
+        today_block = (
+            f"<article class='today'>"
+            f"<h2>Today's Reading List <span class='type'>{latest_list['date']}</span></h2>"
+            f"{latest_list['body_html']}"
+            f"<p class='meta'><a href='posts/{latest_list['slug']}.html'>"
+            "permalink ↗</a></p></article>")
+    else:
+        today_block = ("<h2>Today's Reading List</h2><p class='meta'>First list "
+                       "is in the works — the research desk runs every morning "
+                       "at 6 AM.</p>")
+    post_cards = "".join(
+        f"<div class='card'>"
         f"<h3><a href='posts/{p['slug']}.html'>"
         f"{html.escape(p['title'])}</a></h3>"
         f"<p>{p['date']} · {html.escape(p['type'])}</p></div>"
-        for i, p in enumerate(posts[:20])) or (
-            "<p class='meta'>First posts are in the approval "
-            "queue. The field manual is coming.</p>")
+        for p in posts[:20] if latest_list is None or p["slug"] != latest_list["slug"])
     home = (stamp("issued", "for construction")
-            + f"<h2>Latest from the Field Manual</h2>{HOME_FIG}{post_cards}"
-            f"<h2>Directory</h2><p class='meta'>{len(entities)} verified entries and "
+            + today_block
+            + subscribe_box("The weekly email")
+            + (f"<h2>From the archive</h2>{HOME_FIG}{post_cards}" if post_cards
+               else HOME_FIG)
+            + f"<h2>Directory</h2><p class='meta'>{len(entities)} verified entries and "
             f"counting — <a href='directory/index.html'>browse the directory</a>.</p>"
             f"<h2>Ledgers</h2><p class='meta'>{len(receipts)} dated claims on "
             f"<a href='receipts/index.html'>the receipts</a> ({hits} hit, {misses} "

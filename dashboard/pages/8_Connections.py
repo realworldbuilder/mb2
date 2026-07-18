@@ -1,4 +1,5 @@
-"""Connections page: hook up X, LinkedIn, and Substack.
+"""Connections page: hook up Buttondown (the newsletter), plus the
+optional legacy platforms (X, LinkedIn, Substack).
 
 Paste keys here — they're written to .env on the Mac mini and never
 displayed again (only 'set / not set'). Each platform has a Test button
@@ -100,24 +101,42 @@ if _on_claude and _tc2.button("↩️ Switch back to local model (free)", key="l
 
 st.divider()
 
-# ============================ X ====================================
-st.header(("✅ " if status["x"]["configured"] else "❌ ") + "X (Twitter)")
-with st.expander("How to get the 4 keys (~10 minutes, free)",
-                 expanded=not status["x"]["configured"]):
+# ==================== Buttondown (the newsletter) ==================
+st.header(("✅ " if status["buttondown"]["configured"] else "📬 ")
+          + "Buttondown — the weekly email")
+st.caption("The newsletter is the product now: every Monday the bot mails "
+           "the week's best stories to your subscribers. Free up to 100 "
+           "subscribers, official API, zero touch once connected.")
+with st.expander("How to connect (~3 minutes)",
+                 expanded=not status["buttondown"]["configured"]):
     st.markdown("""
-1. Go to **[developer.x.com](https://developer.x.com)** → sign in with the **@masterbuilder_ai** account → sign up for the **Free** tier.
-2. In the developer portal, open your **Project → App → Settings → User authentication settings** → **Set up**: choose **Read and write** permissions, type **Web App**, and put `https://masterbuilder.ai` as the website / callback URL. Save.
-3. Go to the app's **Keys and tokens** tab:
-   - **API Key and Secret** → Generate → paste both below.
-   - **Access Token and Secret** → Generate (it must say *"Created with Read and Write permissions"* — if not, regenerate after step 2) → paste both below.
-4. Hit **Test** below. Done — the free tier covers ~500 posts/month; the bot caps itself at 5/day anyway.
+1. Go to **[buttondown.com](https://buttondown.com)** → create a free account — pick the username carefully, your subscribe page becomes `buttondown.com/<username>` (e.g. **masterbuilder**).
+2. In Buttondown: **Settings → API** → copy the API key.
+3. Paste the key and your username below, then hit **Test**.
+
+That's it. The Monday digest emails itself; the site's subscribe box starts working as soon as the username is saved. Set `BUTTONDOWN_DRAFT_ONLY=true` on the Settings page if you'd rather approve each email on Buttondown first.
 """)
-key_field("X_API_KEY", "API Key")
-key_field("X_API_SECRET", "API Key Secret")
-key_field("X_ACCESS_TOKEN", "Access Token")
-key_field("X_ACCESS_TOKEN_SECRET", "Access Token Secret")
-key_field("X_HANDLE", "Your handle (for post links, e.g. masterbuilder_ai)", is_secret=False)
-test_button("x")
+key_field("BUTTONDOWN_API_KEY", "Buttondown API key")
+key_field("BUTTONDOWN_USERNAME",
+          "Buttondown username (for the subscribe form, e.g. masterbuilder)",
+          is_secret=False)
+test_button("buttondown")
+
+st.divider()
+
+# ============================ X ====================================
+st.header("⏸️ X (Twitter) — retired from auto-posting")
+st.caption("Auto-posting to X is off (2026-07-18): the API costs ~$200/month "
+           "and X buries link posts anyway. The daily list publishes to the "
+           "site instead. The plumbing below stays in case you ever want it "
+           "back — nothing routes here now, so no keys are needed.")
+with st.expander("Keys (only if re-enabling X someday)"):
+    key_field("X_API_KEY", "API Key")
+    key_field("X_API_SECRET", "API Key Secret")
+    key_field("X_ACCESS_TOKEN", "Access Token")
+    key_field("X_ACCESS_TOKEN_SECRET", "Access Token Secret")
+    key_field("X_HANDLE", "Your handle (for post links, e.g. masterbuilder_ai)", is_secret=False)
+    test_button("x")
 
 st.divider()
 
@@ -155,6 +174,6 @@ key_field("SUBSTACK_PUBLICATION_URL",
 test_button("substack")
 
 st.divider()
-st.caption("After all three test green: Settings page → flip BOT_MODE to "
-           "approved_posting → the Approved page grows live-post buttons. "
-           "Approval-first never changes: nothing posts without your click.")
+st.caption("The daily list publishes to the site automatically — no keys "
+           "needed. Connect Buttondown above and the Monday email starts "
+           "going out too.")

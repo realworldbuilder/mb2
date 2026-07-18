@@ -15,6 +15,12 @@ Usage: python scripts/run_daily.py
 
 import _bootstrap  # noqa: F401
 
+import socket
+
+# Backstop for any network call that slips through without its own
+# timeout — a hung socket must never freeze the daily run again.
+socket.setdefaulttimeout(60)
+
 from masterbuilder_bot import (config, continuity, learning, metrics, posting,
                                storage, triage)
 from masterbuilder_bot.drafting import generate_drafts
@@ -73,19 +79,20 @@ def main() -> int:
     print(f"      {new} new entities, {updated} updated "
           f"({len(list_entities())} total in knowledge/)")
 
-    # Auto mode: the day's X-bound drafts approve and post themselves,
+    # Auto mode: the day's drafts approve themselves (approval publishes
+    # to the site) and email-bound drafts go out via their publisher,
     # through the exact rails a manual post uses (content, cadence caps,
-    # risk gate). Essays/content ideas always wait for a human.
+    # risk gate). Risky drafts always wait for a human.
     posted_summary = ""
     if config.bot_mode() == config.AUTO_POSTING:
-        print("[6/6] Auto-posting to X (BOT_MODE=auto_posting)...")
+        print("[6/6] Publishing (BOT_MODE=auto_posting)...")
         try:
             results = posting.auto_post_day(day)
             for r in results:
                 mark = "->" if r.get("posted") else "  skipped:"
                 print(f"      {mark} {r['file']} {r.get('url') or r.get('detail', '')}")
             n = sum(1 for r in results if r.get("posted"))
-            posted_summary = f"{n} auto-posted to X"
+            posted_summary = f"{n} published (site/email)"
             print(f"      {posted_summary}")
         except Exception as e:  # noqa: BLE001
             log_error(f"[posting] auto-post failed: {e}")

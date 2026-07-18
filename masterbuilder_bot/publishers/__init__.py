@@ -10,40 +10,45 @@ Routing: each draft type has a home platform. content_idea stays
 internal (it's a visual brief, not a post).
 """
 
-from masterbuilder_bot.publishers import linkedin, substack, x
+from masterbuilder_bot.publishers import buttondown, linkedin, substack, x
 
 PLATFORMS = {
     "x": x,
     "linkedin": linkedin,
     "substack": substack,
+    "buttondown": buttondown,
 }
 
 # Where each draft type gets published by default.
-# LinkedIn is wired but OFF by William's choice (2026-07-05): he doesn't
-# want automated posts on his personal profile. builder_signal goes to X
-# as a thread instead. Re-enable by mapping a type back to "linkedin".
+# Newsletter-first model (2026-07-18): the daily reading list publishes
+# to the SITE only (platform None — build_site renders approved/), the
+# Monday weekly_digest goes out as email via Buttondown. X auto-posting
+# is retired — the API costs money and buries link posts; the x module
+# stays wired for a possible manual/paid future.
+# LinkedIn is wired but OFF by William's choice (2026-07-05).
 PLATFORM_FOR_TYPE = {
-    "x_post": "x",
-    "reading_list": "x",
+    "reading_list": None,       # site-only: approved/ -> build_site
+    "weekly_digest": "buttondown",
+    "content_idea": None,
+    # legacy types (no longer generated, may exist in approved/):
+    "x_post": None,
     "reading_list_substack": "substack",
     "essay": "substack",
-    "content_idea": None,
-    # continuity types (followups, receipts, records) and weekly segments:
-    "followup": "x",
-    "receipt": "x",
-    "record": "x",
-    "demo_vs_dirt": "x",
-    "still_standing": "x",
-    "punch_list": "substack",  # the Friday wrap is essay-shaped
-    # legacy types (no longer generated, may exist in approved/):
-    "x_thread": "x",
-    "builder_signal": "x",
+    "followup": None,
+    "receipt": None,
+    "record": None,
+    "demo_vs_dirt": None,
+    "still_standing": None,
+    "punch_list": "substack",
+    "x_thread": None,
+    "builder_signal": None,
 }
 
 PLATFORM_LABELS = {
     "x": "X (Twitter)",
     "linkedin": "LinkedIn",
     "substack": "Substack",
+    "buttondown": "Buttondown (email)",
 }
 
 

@@ -36,6 +36,7 @@ SECRET_KEYS = (
     "X_ACCESS_TOKEN_SECRET",
     "LINKEDIN_ACCESS_TOKEN",
     "SUBSTACK_PASSWORD",
+    "BUTTONDOWN_API_KEY",
 )
 
 # Non-secret settings the Connections page may read/write in .env.
@@ -43,6 +44,8 @@ SETTING_KEYS = (
     "SUBSTACK_EMAIL",
     "SUBSTACK_PUBLICATION_URL",
     "SUBSTACK_AUTO_PUBLISH",
+    "BUTTONDOWN_USERNAME",
+    "BUTTONDOWN_DRAFT_ONLY",
     "LINKEDIN_AUTHOR_URN",
     "X_HANDLE",
     "LLM_PROVIDER",

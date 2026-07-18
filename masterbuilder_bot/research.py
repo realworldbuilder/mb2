@@ -42,10 +42,14 @@ def enabled_sources(data: dict | None = None) -> list[dict]:
 
 def _fetch_rss(src: dict, limit: int, timeout: int) -> list[ResearchItem]:
     import feedparser
+    import requests
 
-    feed = feedparser.parse(
-        src["url"], agent=USER_AGENT, request_headers={"Accept": "*/*"}
-    )
+    # Fetch the feed ourselves so the timeout is real — feedparser's own
+    # URL fetching has none, and one dead feed used to hang the whole run.
+    resp = requests.get(src["url"], timeout=timeout,
+                        headers={"User-Agent": USER_AGENT, "Accept": "*/*"})
+    resp.raise_for_status()
+    feed = feedparser.parse(resp.content)
     if feed.get("bozo") and not feed.get("entries"):
         raise RuntimeError(f"feed error: {feed.get('bozo_exception', 'unparseable')}")
     items = []

@@ -148,17 +148,29 @@ def move_to_posted(path: Path) -> Path:
 AUTO_POST_MAX_RISK = 2
 
 
+# Draft types the pipeline generates today — the only ones auto mode
+# will approve on its own. Legacy types sitting in drafts/ stay put.
+AUTO_APPROVE_TYPES = ("reading_list", "weekly_digest")
+
+
 def auto_post_day(day: str | None = None) -> list[dict]:
-    """BOT_MODE=auto_posting: approve and post the day's X- and
-    Substack-bound drafts, in slot order, through every rail a manual
+    """BOT_MODE=auto_posting: approve the day's drafts and send out the
+    ones that have a configured destination, through every rail a manual
     post goes through.
 
-    Approval here is the real review.approve — it logs feedback, opens
-    continuity arcs, and carries the fact card along — so an auto-posted
-    story behaves exactly like one William clicked. The daily cadence cap
-    (safety.MAX_POSTS_PER_DAY) is the hard ceiling; higher-risk drafts,
-    non-X types, and anything the rails reject stay in the queue for
-    manual review. Returns one result dict per draft considered."""
+    Newsletter-first model: approval alone is publication for the daily
+    reading list — build_site renders approved/ onto masterbuilder.ai —
+    so site-bound drafts (platform None) get approved even when no
+    external platform is configured. Email-bound drafts (weekly_digest)
+    additionally go out via their publisher; if the platform isn't
+    configured yet they wait in approved/ and the retry pass sends them
+    once keys exist.
+
+    Approval here is the real review.approve — it logs feedback and
+    opens continuity arcs — so an auto-approved story behaves exactly
+    like one William clicked. Higher-risk drafts and anything the rails
+    reject stay in the queue for manual review. Returns one result dict
+    per draft considered."""
     from masterbuilder_bot import publishers as pubs
     from masterbuilder_bot import review
 
@@ -168,16 +180,16 @@ def auto_post_day(day: str | None = None) -> list[dict]:
         log("posting", "auto_post_day called but BOT_MODE != auto_posting — no-op")
         return results
 
-    # X posts publicly; Substack is draft-first (the publisher creates a
-    # Substack draft unless SUBSTACK_AUTO_PUBLISH is set), so both are
-    # safe to automate. An unconfigured platform just leaves drafts alone.
-    auto_platforms = tuple(p for p in ("x", "substack")
+    # Platforms safe to send to unattended. X is intentionally absent —
+    # auto X posting is retired (2026-07-18).
+    auto_platforms = tuple(p for p in ("buttondown", "substack")
                            if pubs.get(p).is_configured())
 
     # Retry pass first: approved posts (any day) that never made it out —
-    # a prior run's publisher failure (API credits, outage) leaves them
-    # here. Stale ones you no longer want must be rejected/removed from
-    # approved/, otherwise they ship as soon as the platform recovers.
+    # a prior run's publisher failure (API credits, outage) or a platform
+    # configured after the fact leaves them here. Stale ones you no longer
+    # want must be rejected/removed from approved/, otherwise they ship as
+    # soon as the platform recovers.
     retries = [p for p in storage.list_approved()
                if pubs.platform_for(storage.load_post(p).get("type", "")) in auto_platforms
                and not storage.load_post(p).get("post_id")]
@@ -187,20 +199,39 @@ def auto_post_day(day: str | None = None) -> list[dict]:
     for path, already_approved in todo:
         post = storage.load_post(path)
         dtype = post.get("type", "")
-        if pubs.platform_for(dtype) not in auto_platforms:
+        platform = pubs.platform_for(dtype)
+        if not already_approved and dtype not in AUTO_APPROVE_TYPES:
             continue
         entry = {"file": path.name, "type": dtype}
         if not already_approved and int(post.get("risk_score", 1) or 1) > AUTO_POST_MAX_RISK:
             entry.update(posted=False, detail="risk_score too high — left for manual review")
             results.append(entry)
             continue
-        # content rail first, BEFORE approving — a draft that can't post
+        # content rail first, BEFORE approving — a draft that can't publish
         # stays a draft for manual attention, not an orphan in approved/
         try:
             safety.assert_content_safe(post.content.strip(),
                                        post.get("sources", []) or [])
         except safety.SafetyError as e:
             entry.update(posted=False, detail=f"content blocked: {e}")
+            results.append(entry)
+            continue
+        try:
+            approved = (path if already_approved else
+                        review.approve(path, reason="auto-approved (BOT_MODE=auto_posting)"))
+        except Exception as e:  # noqa: BLE001
+            entry.update(posted=False, detail=f"approve error: {e}")
+            results.append(entry)
+            continue
+
+        if platform is None:
+            # Site-only: approval IS publication (build_site picks it up).
+            entry.update(posted=True, detail="approved -> site")
+            results.append(entry)
+            continue
+        if platform not in auto_platforms:
+            entry.update(posted=False,
+                         detail=f"approved; waiting for {platform} to be configured")
             results.append(entry)
             continue
         # cadence rail: once today's cap is hit, everything left waits
@@ -212,8 +243,6 @@ def auto_post_day(day: str | None = None) -> list[dict]:
             log("posting", f"auto-post stopped at {path.name}: {e}")
             break
         try:
-            approved = (path if already_approved else
-                        review.approve(path, reason="auto-posted (BOT_MODE=auto_posting)"))
             result = post_live(approved)
             entry.update(posted=bool(result.get("posted")),
                          url=result.get("url", ""), detail=result.get("detail", ""))
@@ -222,6 +251,6 @@ def auto_post_day(day: str | None = None) -> list[dict]:
         results.append(entry)
 
     posted_n = sum(1 for r in results if r.get("posted"))
-    log("posting", f"auto-post {day}: {posted_n} posted, "
+    log("posting", f"auto-publish {day}: {posted_n} published, "
                    f"{len(results) - posted_n} skipped/blocked")
     return results

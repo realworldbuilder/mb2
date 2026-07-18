@@ -139,9 +139,12 @@ def main() -> int:
         summary = continuity.check("2026-01-02")
         check("continuity morning check runs offline", isinstance(summary, dict),
               str(summary))
-        plan = plan_slots("2026-01-05", [{"dtype": "followup"}])
-        check("plan is the reading-list pair (specials take no slots)",
-              plan == ["reading_list", "reading_list_substack"], str(plan))
+        plan = plan_slots("2026-01-05", [{"dtype": "followup"}])  # a Monday
+        check("Monday plan adds the weekly digest (specials take no slots)",
+              plan == ["reading_list", "weekly_digest"], str(plan))
+        plan = plan_slots("2026-01-06", [{"dtype": "followup"}])  # a Tuesday
+        check("weekday plan is the daily list alone",
+              plan == ["reading_list"], str(plan))
         from masterbuilder_bot.drafting import _updates_digest
         digest = _updates_digest([{"dtype": "record", "event": {
             "label": "Test mark", "record": {"value": 1, "unit": "x",

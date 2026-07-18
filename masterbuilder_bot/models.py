@@ -8,17 +8,16 @@ from pydantic import BaseModel, Field
 RESEARCH_STATUSES = ("unreviewed", "useful", "maybe", "ignore")
 
 # Draft types generated each day, and how many of each.
-# Direction (2026-07-06): the bot IS a reading-list generator. One
-# product, two formats — the daily X thread and the daily Substack
-# digest. No solo posts, no standalone essays; the picks are the
-# judgment. Continuity (arcs/receipts/records) feeds a "Still watching"
-# section INSIDE both formats instead of taking slots of its own.
+# Direction (2026-07-18): newsletter-first. One daily reading list that
+# publishes to the site, plus a Monday weekly digest that goes out as
+# email — the best of the past week, not a rehash of every day. The
+# picks are the judgment. Continuity (arcs/receipts/records) feeds a
+# "Still watching" section INSIDE both formats.
 DRAFT_PLAN = [
     ("reading_list", 1),
-    ("reading_list_substack", 1),
 ]
 
-DRAFT_TYPES = [t for t, _ in DRAFT_PLAN]
+DRAFT_TYPES = [t for t, _ in DRAFT_PLAN] + ["weekly_digest"]
 
 # Continuity dtypes produced by masterbuilder_bot.continuity — no longer
 # separate drafts; they become the UPDATES block in the reading list.
@@ -28,13 +27,18 @@ CONTINUITY_TYPES = ("followup", "receipt", "record")
 def plan_slots(day: str, specials: list) -> list:
     """The day's draft plan as a flat slot list.
 
-    Reading-list model: always the X thread + the Substack digest.
-    `specials` (continuity followups/receipts/records) don't take slots
-    anymore — drafting folds them into both formats as a "Still
-    watching" section. The signature keeps the specials arg so callers
-    don't care about the model change.
+    Newsletter model: the daily reading list every day; on Mondays a
+    weekly_digest slot joins it (the week's best, emailed). `specials`
+    (continuity followups/receipts/records) don't take slots — drafting
+    folds them into the list as a "Still watching" section. The
+    signature keeps the specials arg so callers don't care.
     """
-    return [t for t, count in DRAFT_PLAN for _ in range(count)]
+    from datetime import date
+
+    slots = [t for t, count in DRAFT_PLAN for _ in range(count)]
+    if date.fromisoformat(day).weekday() == 0:  # Monday
+        slots.append("weekly_digest")
+    return slots
 
 
 class ResearchItem(BaseModel):
